@@ -72,26 +72,47 @@
     byId('month-days').replaceChildren(days);
   }
 
-  function turnCorner(back) {
+  // An inert snapshot keeps the old dates on the lifting sheet as the new month appears.
+  function snapshotMonth() {
     const paper = document.querySelector('.calendar-paper');
-    paper.querySelector('.page-corner')?.remove();
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const corner = document.createElement('span');
-    corner.className = back ? 'page-corner back' : 'page-corner';
-    corner.setAttribute('aria-hidden', 'true');
-    paper.append(corner);
-    const turn = corner.animate([
-      { transform: 'scale(.12)', opacity: 0 },
-      { transform: 'scale(1)', opacity: .96, offset: .42 },
-      { transform: 'scale(.15)', opacity: 0 }
-    ], { duration: 320, easing: 'ease-in-out' });
-    turn.onfinish = () => corner.remove();
+    const leaf = document.createElement('div');
+    leaf.className = 'calendar-leaf';
+    leaf.inert = true;
+    leaf.setAttribute('aria-hidden', 'true');
+    for (const selector of ['.month-heading', '.weekdays', '#month-days']) {
+      const part = paper.querySelector(selector).cloneNode(true);
+      if (selector === '#month-days') part.classList.add('leaf-days');
+      part.removeAttribute('id');
+      part.removeAttribute('aria-labelledby');
+      for (const child of part.querySelectorAll('[id]')) child.removeAttribute('id');
+      leaf.append(part);
+    }
+    paper.append(leaf);
+    return leaf;
+  }
+
+  function turnLeaf(leaf, reverse, underlay) {
+    const animation = leaf.animate([
+      { transform: 'perspective(600px) rotateX(0deg)', opacity: 1 },
+      { transform: 'perspective(600px) rotateX(44deg)', opacity: .97, offset: .55 },
+      { transform: 'perspective(600px) rotateX(88deg)', opacity: .35 }
+    ], { duration: 390, direction: reverse ? 'reverse' : 'normal', easing: 'ease-in-out' });
+    animation.onfinish = () => {
+      leaf.remove();
+      underlay?.remove();
+    };
   }
 
   function shiftMonth(offset) {
-    turnCorner(offset < 0);
+    const paper = document.querySelector('.calendar-paper');
+    paper.querySelectorAll('.calendar-leaf').forEach(leaf => leaf.remove());
+    const motion = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const previous = motion ? snapshotMonth() : null;
     visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1);
     paintMonth();
+    if (!previous) return;
+    if (offset > 0) turnLeaf(previous, false);
+    else turnLeaf(snapshotMonth(), true, previous);
   }
 
   function paintTasks() {

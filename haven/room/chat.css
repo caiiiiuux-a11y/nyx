@@ -57,8 +57,6 @@ body[data-page="chat"] button, body[data-page="chat"] textarea, body[data-page="
 .msg { width: 100%; display: flex; align-items: flex-start; gap: 7px; }
 .msg + .msg { margin-top: 10px; }
 .msg.me { justify-content: flex-end; }
-.deer { flex: 0 0 auto; width: clamp(29px,7vw,41px); height: 35px; object-fit: contain; margin-top: 8px; }
-body.hide-deer .deer { display: none; }
 .msg-content { min-width: 0; max-width: min(86%, 470px); }
 .msg.ai .msg-content { max-width: min(calc(100% - 40px), 475px); }
 .bubble {
@@ -74,8 +72,12 @@ body.hide-deer .deer { display: none; }
 .bubble time { margin-top: 4px; }
 .bubble blockquote { margin: 1px 0 5px; padding-left: 7px; border-left: 2px solid #ad9d89; font: 12px/1.4 var(--chat-text); overflow-wrap: anywhere; }
 .message-actions { display: flex; align-items: center; margin: 1px 0 -4px; }
-.message-actions button { width: 32px; height: 30px; padding: 5px; border: 0; background: transparent; display: grid; place-items: center; color: #805b3d; }
-.message-actions svg { width: 14px !important; height: 14px !important; }
+.message-actions button { width: 40px; min-height: 36px; padding: 6px; border: 0; border-radius: 12px; background: transparent; display: grid; place-items: center; color: #805b3d; }
+.message-actions button[aria-pressed="true"] { color: #38677f; background: #dce8eb; }
+.message-actions svg { width: 16px !important; height: 16px !important; }
+@media (pointer: coarse) {
+  .message-actions button { width: 44px; min-height: 44px; }
+}
 .photo-button {
   background: #fff6e9; box-shadow: 0 2px 3px #7255393a; border-radius: 4px; border: 1px solid #e2d3bf;
   padding: 4px; display: block; width: fit-content; max-width: 100%; margin-left: auto;

@@ -17,6 +17,13 @@ const replies = [
   '我把靠窗的位置给你留着。坐一会儿吧，等那朵云慢慢走过去。',
   '窗台上刚好有一小块阳光，我想把它留给你。你可以慢慢说，我会把你写下来的每一句都读完。等到天色暗下来，我们再一起把窗帘拉上。'
 ];
+// On devices without an installed Mandarin voice, play the offline recording
+// for this exact mock message (including messages restored from sessionStorage).
+const recordedReadings = new Map([
+  [examples[1][1], '/room/assets/read-0.mp3'],
+  [replies[0], '/room/assets/read-1.mp3'],
+  [replies[1], '/room/assets/read-2.mp3']
+]);
 const today = new Date();
 const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 const timeToday = time => {
@@ -52,6 +59,7 @@ function reply(id, text) {
 }
 
 export const chatService = {
+  readingFor(text) { return recordedReadings.get(text); },
   room() { return { messages: [...messages], model, models, date: midnight, media: assets }; },
   selectModel(value) {
     if (!models.includes(value)) throw new Error('模型不可用');

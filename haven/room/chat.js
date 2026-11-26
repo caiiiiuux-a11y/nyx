@@ -2,6 +2,7 @@
 // context-menu/long-press handling, auto-growing input and IME-safe submit.
 // Noncommercial use under CC BY-NC 4.0. See /credits.html.
 import { chatService } from './service.js';
+import { avatarButton } from './avatars.js';
 
 const $ = id => document.getElementById(id);
 const room = chatService.room();
@@ -15,6 +16,9 @@ const touchInput = matchMedia('(pointer: coarse)').matches;
 let quote = null;
 let media = '';
 let playing = null;
+let reading = null;
+const speech = window.speechSynthesis;
+speech?.getVoices(); // Some engines populate the installed voice list asynchronously.
 let feedbackTimer;
 function element(tag, cls, text) {
   const node = document.createElement(tag);
@@ -52,6 +56,62 @@ function hm(ts) {
 function audioTime(seconds) {
   return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
 }
+function setReadingButton(button, active) {
+  button.setAttribute('aria-pressed', String(active));
+  button.title = active ? '停止朗读' : '朗读消息';
+  button.setAttribute('aria-label', button.title);
+  button.replaceChildren(icon(active ? 'stop' : 'read'));
+}
+function stopReading() {
+  if (!reading) return;
+  const { button, audio } = reading;
+  reading = null;
+  setReadingButton(button, false);
+  if (audio) audio.pause();
+  else speech?.cancel();
+}
+function readAloud(text, button) {
+  const toggleOff = reading?.button === button;
+  stopReading();
+  if (toggleOff) return;
+  const voice = speech?.getVoices().find(v => v.localService && /^(zh|cmn)([-_]|$)/i.test(v.lang));
+  playing?.pause();
+  const session = { button };
+  reading = session;
+  setReadingButton(button, true);
+  const finish = failed => {
+    if (reading !== session) return;
+    reading = null;
+    setReadingButton(button, false);
+    if (failed) toast('设备暂时无法朗读这条消息。');
+  };
+  const playRecording = () => {
+    if (reading !== session) return;
+    const src = chatService.readingFor(text);
+    if (!src) {
+      finish(true);
+      return;
+    }
+    const audio = new Audio(src);
+    session.audio = audio;
+    audio.onended = () => finish(false);
+    audio.onerror = () => finish(true);
+    audio.play().catch(() => finish(true));
+  };
+  if (!voice || !window.SpeechSynthesisUtterance) {
+    playRecording();
+    return;
+  }
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.voice = voice;
+  utterance.lang = voice.lang;
+  session.utterance = utterance;
+  utterance.onend = () => finish(false);
+  utterance.onerror = playRecording;
+  try { speech.speak(utterance); }
+  catch { playRecording(); }
+}
+window.addEventListener('pagehide', stopReading);
 function caption(m) {
   return m.text || m.meta?.attachments?.[0]?.name || '';
 }
@@ -143,6 +203,7 @@ function voiceCard(a) {
   const row = element('div', 'voice');
   const play = control('播放声音样例', async () => {
     if (!audio.paused) return audio.pause();
+    stopReading();
     if (playing !== audio) playing?.pause();
     playing = audio;
     try { await audio.play(); }
@@ -178,12 +239,7 @@ function build(m) {
   row.dataset.from = m.from;
   row.dataset.ts = m.ts;
   row.setAttribute('aria-label', me ? 'Iris 的消息' : 'Adrian 的消息');
-  if (!me) {
-    const deer = element('img', 'deer');
-    deer.src = '/room/assets/pin-fawn.png';
-    deer.alt = '';
-    row.append(deer);
-  }
+  row.append(avatarButton(me ? 'iris' : 'adrian'));
   const content = element('div', 'msg-content');
   const attachments = m.meta.attachments || [];
   const imageOnly = attachments.length === 1 && attachments[0].kind === 'image' && !m.text && !m.meta.quote;
@@ -204,11 +260,18 @@ function build(m) {
   if (!me) {
     const actions = element('div', 'message-actions');
     actions.append(control('复制消息', () => copy(m), 'copy'));
-    if (m.text) actions.append(control('重新生成示例回复', () => {
-      const updated = chatService.regenerate(m.id);
-      if (updated) row.replaceWith(build(updated));
-    }, 'retry'));
-    actions.append(control('引用或查看消息来源', () => menu(m), 'more'));
+    if (m.text) {
+      actions.append(control('重新生成示例回复', () => {
+        if (reading && row.contains(reading.button)) stopReading();
+        const updated = chatService.regenerate(m.id);
+        if (updated) row.replaceWith(build(updated));
+      }, 'retry'));
+      const read = control('朗读消息', event => readAloud(m.text, event.currentTarget), 'read');
+      read.setAttribute('aria-pressed', 'false');
+      actions.append(read);
+    } else {
+      actions.append(control('引用或查看消息来源', () => menu(m), 'more'));
+    }
     content.append(actions);
   }
   addGestureMenu(body, m);
@@ -262,13 +325,6 @@ for (const model of room.models) picker.add(new Option(model, model));
 picker.value = room.model;
 picker.onchange = () => chatService.selectModel(picker.value);
 $('options').onclick = () => $('settings').showModal();
-const deer = $('show-deer');
-try { deer.checked = localStorage.getItem('haven.room.deer') !== 'off'; } catch {}
-document.body.classList.toggle('hide-deer', !deer.checked);
-deer.onchange = () => {
-  document.body.classList.toggle('hide-deer', !deer.checked);
-  try { localStorage.setItem('haven.room.deer', deer.checked ? 'on' : 'off'); } catch {}
-};
 
 // Preserve the existing local wallpaper preference from the earlier static mock.
 const wallpaperKey = 'haven.chat.wallpaper';
