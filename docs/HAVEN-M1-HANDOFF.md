@@ -43,6 +43,14 @@
 
 旧聊天原文检索的建议尚待实现。导入后用本地 BGE-M3 给相邻消息片段建立向量索引，并保留会话和消息编号。查询时结合语义检索和关键词检索，合并候选，再按编号取回原文与前后文。明确的日期或会话可以缩小范围。若多段都合理，就请金金确认。引用须能定位到原消息。Ombre 继续维护已有的长期记忆索引。
 
+### Serein 源码对照
+
+核对作者后续项目 Serein 的 `fdab5a8`。适合小屋借鉴的有三处。
+
+- **先找记忆，再核原话。** 自动召回对 Scene／Event 做混合检索并重排。命中后，`read_memory(with_evidence=True)` 可以取回该记忆实际绑定的原话。建议保留记忆编号到原消息编号的关联。[召回与证据读取](https://github.com/Yinglianchun/Serein/blob/fdab5a8af8c966572c47faabed18223079bc91c4/README.md#L78-L90) · [证据测试](https://github.com/Yinglianchun/Serein/blob/fdab5a8af8c966572c47faabed18223079bc91c4/tests/test_hook_evidence_on_demand.py#L29-L46)
+- **独立查阅原话。** 启用原话工具后，`source_message_search` 对正文使用 SQLite 字面匹配，可按日期和角色过滤。`source_message_read` 按编号取全文，归属明确时可取同一来源会话前后各最多三条。历史文件默认只归档。小屋若要靠改写的问句搜到从未整理成记忆的消息，仍需给原话片段建立语义检索。[查原话与邻文](https://github.com/Yinglianchun/Serein/blob/fdab5a8af8c966572c47faabed18223079bc91c4/src/serein/compat/originals.py#L79-L159)
+- **分批导入。** 借鉴文件预览、稳定消息编号去重、同号异文报冲突，以及沿当前节点回溯分支。多分支且缺当前节点时，Serein 会提示无法确定，只导入当前分支也意味着其他版本要另行保留。小屋的完整分支归档仍需单独设计。[解析代码](https://github.com/Yinglianchun/Serein/blob/fdab5a8af8c966572c47faabed18223079bc91c4/src/serein/imports.py#L56-L71) · [导入约定](https://github.com/Yinglianchun/Serein/blob/fdab5a8af8c966572c47faabed18223079bc91c4/docs/file-imports.md#L10-L26)
+
 ### Haven-Ombre 源码对照
 
 只读参考 Yinglianchun 的 Haven-Ombre，版本 `2746223`。作者已停止维护该仓库。新增代码的使用范围及署名要求见 [NOTICE](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/NOTICE.md)。本轮只记录设计取舍。
