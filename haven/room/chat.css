@@ -120,7 +120,53 @@ body[data-page="chat"] dialog form button { font-weight: 600; }
 #settings-status { color: #765f4f; font-size: 12px; }
 .setting { display: flex; align-items: center; justify-content: space-between; min-height: 46px; gap: 12px; }
 .wallpaper, .wallpaper input { display: block; width: 100%; margin: 9px 0; }
-#choice-list { display: grid; gap: 8px; }
+body[data-page="chat"] dialog.action-panel {
+  position: fixed;
+  inset: auto;
+  z-index: 5;
+  width: min(184px, calc(100vw - 16px));
+  max-width: none;
+  max-height: calc(var(--view-height, 100dvh) - 16px);
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  color: #463b33;
+  border: 1px solid #fff9;
+  border-radius: 17px;
+  background: #fbf8f1ed;
+  box-shadow: inset 0 1px 1px #fffb, 0 0 0 1px #907c681e, 0 5px 18px #57473326;
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body[data-page="chat"] dialog.action-panel {
+    background:
+      radial-gradient(ellipse at 14% 6%, #fffaf396, transparent 68%),
+      radial-gradient(ellipse at 96% 90%, #d8e5e94d, transparent 62%),
+      #fffaf13d;
+    -webkit-backdrop-filter: blur(9px) saturate(1.14);
+    backdrop-filter: blur(9px) saturate(1.14);
+  }
+}
+body[data-page="chat"] .action-panel h2 {
+  margin: 4px 8px 5px;
+  color: #65594e;
+  font: 500 12px/1.45 var(--chat-text);
+}
+#choice-list { display: grid; }
+body[data-page="chat"] #choice-list button {
+  display: flex; align-items: center; gap: 11px;
+  padding: 6px 9px; min-height: 42px;
+  border: 0; border-radius: 9px; background: transparent; text-align: left;
+  font: 500 15px/1.3 var(--chat-text);
+}
+#choice-list svg {
+  width: 17px; height: 17px; flex: none;
+  stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+body[data-page="chat"] #choice-list button:is(:hover,:focus-visible,:active) { background: #fff8; }
+body[data-page="chat"] #settings { width: min(252px, calc(100vw - 16px)); padding: 12px 15px; }
+body[data-page="chat"] #settings h2 { margin: 0 0 5px; }
+#settings .setting { min-height: 40px; }
+#settings .wallpaper input { max-width: 100%; }
 #large-photo { width: 100%; display: block; }
 #feedback { position: fixed; bottom: 24%; left: 50%; transform: translateX(-50%); z-index: 4; background: #594234; color: #fff8ef; border-radius: 16px; padding: 6px 13px; font: 13px system-ui,sans-serif; pointer-events: none; }
 #feedback:empty { display: none; }

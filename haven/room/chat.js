@@ -115,13 +115,66 @@ window.addEventListener('pagehide', stopReading);
 function caption(m) {
   return m.text || m.meta?.attachments?.[0]?.name || '';
 }
-function showChoices(title, items) {
+// A non-modal dialog keeps the input and scroller active behind the anchored panel.
+let panel = null;
+function dismissPanel() {
+  if (!panel) return;
+  const { dialog, anchor } = panel;
+  panel = null;
+  anchor.setAttribute('aria-expanded', 'false');
+  dialog.close();
+}
+function openPanel(dialog, anchor) {
+  const same = panel?.dialog === dialog && panel.anchor === anchor;
+  dismissPanel();
+  if (same) return;
+  panel = { dialog, anchor };
+  anchor.setAttribute('aria-expanded', 'true');
+  dialog.show();
+  const rect = anchor.getBoundingClientRect();
+  const viewport = window.visualViewport;
+  const left = (viewport?.offsetLeft || 0) + 8;
+  const top = (viewport?.offsetTop || 0) + 8;
+  const right = left + (viewport?.width || innerWidth) - 16;
+  const bottom = top + (viewport?.height || innerHeight) - 16;
+  const box = dialog.getBoundingClientRect();
+  const below = rect.bottom + 5;
+  const y = below + box.height <= bottom ? below : rect.top - box.height - 5;
+  const x = rect.left + rect.width / 2 > (left + right) / 2 ? rect.right - box.width : rect.left;
+  dialog.style.left = Math.max(left, Math.min(x, right - box.width)) + 'px';
+  dialog.style.top = Math.max(top, Math.min(y, bottom - box.height)) + 'px';
+}
+document.addEventListener('pointerdown', event => {
+  if (panel && !panel.dialog.contains(event.target) && !panel.anchor.contains(event.target)) dismissPanel();
+}, true);
+document.addEventListener('keydown', event => {
+  if (panel && event.key === 'Escape') {
+    event.preventDefault();
+    const anchor = panel.anchor;
+    dismissPanel();
+    anchor.focus({ preventScroll: true });
+  }
+});
+document.addEventListener('focusin', event => {
+  if (panel && !panel.dialog.contains(event.target) && !panel.anchor.contains(event.target)) dismissPanel();
+});
+log.addEventListener('scroll', dismissPanel, { passive: true });
+window.addEventListener('resize', dismissPanel);
+window.visualViewport?.addEventListener('resize', dismissPanel);
+window.visualViewport?.addEventListener('scroll', dismissPanel);
+for (const dialog of [$('choices'), $('settings')]) {
+  dialog.addEventListener('close', () => {
+    if (!dialog.open && panel?.dialog === dialog) dismissPanel();
+  });
+}
+function showChoices(title, items, anchor) {
   $('choice-title').textContent = title;
-  $('choice-list').replaceChildren(...items.map(([label, run]) => control(label, () => {
-    $('choices').close();
-    run();
-  })));
-  $('choices').showModal();
+  $('choice-list').replaceChildren(...items.map(([label, run, glyph]) => {
+    const button = control(label, () => { dismissPanel(); run(); }, glyph);
+    if (glyph) button.append(label);
+    return button;
+  }));
+  openPanel($('choices'), anchor);
 }
 function setQuote(value) {
   quote = value;
@@ -147,9 +200,24 @@ async function copy(m) {
   field.remove();
   toast(copied ? '已复制' : '请长按文字复制');
 }
-function menu(m) {
+function retryMessage(m) {
+  const row = log.querySelector('[data-id="' + m.id + '"]');
+  const updated = chatService.regenerate(m.id);
+  if (!row || !updated) return;
+  const hadFocus = row.contains(document.activeElement);
+  if (reading && row.contains(reading.button)) stopReading();
+  if (playing && row.contains(playing)) { playing.pause(); playing = null; }
+  const replacement = build(updated);
+  row.replaceWith(replacement);
+  if (hadFocus) replacement.querySelector('.message-actions button').focus({ preventScroll: true });
+  if (updated.meta.attachments.some(a => a.kind === 'audio')) toast('已重新生成语音');
+}
+function menu(m, anchor) {
   const source = m.from === 'ai' ? 'Adrian · 模拟 ' + m.meta.model : 'Iris';
-  showChoices(source, [['引用', () => quoteMessage(m)], ['复制', () => copy(m)]]);
+  const items = [];
+  if (m.from === 'ai') items.push(['重试', () => retryMessage(m), 'retry']);
+  items.push(['引用', () => quoteMessage(m), 'quote'], ['复制', () => copy(m), 'copy']);
+  showChoices(hm(m.ts) + ' · ' + source, items, anchor);
 }
 function addGestureMenu(node, m) {
   let timer, sx, sy;
@@ -159,20 +227,20 @@ function addGestureMenu(node, m) {
   node.onkeydown = ev => {
     if (ev.target !== node || !['Enter', 'ContextMenu'].includes(ev.key)) return;
     ev.preventDefault();
-    menu(m);
+    menu(m, node);
   };
   node.oncontextmenu = ev => {
     if (ev.target.closest('button,input')) return;
     ev.preventDefault();
     stop();
-    if (!$('choices').open) menu(m);
+    if (!$('choices').open) menu(m, node);
   };
   node.addEventListener('pointerdown', ev => {
     if (ev.target.closest('button,input')) return;
     sx = ev.clientX;
     sy = ev.clientY;
     stop();
-    timer = setTimeout(() => { if (!$('choices').open) menu(m); }, 520);
+    timer = setTimeout(() => { if (!$('choices').open) menu(m, node); }, 520);
   });
   node.addEventListener('pointermove', ev => {
     if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) stop();
@@ -260,18 +328,17 @@ function build(m) {
   if (!me) {
     const actions = element('div', 'message-actions');
     actions.append(control('复制消息', () => copy(m), 'copy'));
+    actions.append(control('重新生成示例回复', () => retryMessage(m), 'retry'));
     if (m.text) {
-      actions.append(control('重新生成示例回复', () => {
-        if (reading && row.contains(reading.button)) stopReading();
-        const updated = chatService.regenerate(m.id);
-        if (updated) row.replaceWith(build(updated));
-      }, 'retry'));
       const read = control('朗读消息', event => readAloud(m.text, event.currentTarget), 'read');
       read.setAttribute('aria-pressed', 'false');
       actions.append(read);
-    } else {
-      actions.append(control('引用或查看消息来源', () => menu(m), 'more'));
     }
+    const more = control('更多消息操作', event => menu(m, event.currentTarget), 'more');
+    more.setAttribute('aria-haspopup', 'dialog');
+    more.setAttribute('aria-controls', 'choices');
+    more.setAttribute('aria-expanded', 'false');
+    actions.append(more);
     content.append(actions);
   }
   addGestureMenu(body, m);
@@ -294,7 +361,7 @@ function attach(kind) {
 function send() {
   const text = say.value.trim();
   if (!text && !media) {
-    showChoices('声音样例', [['附上本地样音', () => attach('audio')]]);
+    showChoices('声音样例', [['附上本地样音', () => attach('audio')]], $('send'));
     return;
   }
   for (const m of chatService.send(text, media, quote)) log.append(build(m));
@@ -307,7 +374,7 @@ quoteChip.onclick = () => setQuote(null);
 attachmentChip.onclick = () => attach('');
 $('attach').onclick = () => showChoices('添加附件', [
   ['窗边的兔子 · 图片', () => attach('image')], ['声音样例 · 音频', () => attach('audio')]
-]);
+], $('attach'));
 composer.onsubmit = ev => { ev.preventDefault(); send(); };
 say.oninput = updateComposer;
 if (touchInput) say.setAttribute('enterkeyhint', 'enter');
@@ -324,7 +391,7 @@ if (room.messages.length > 5) requestAnimationFrame(() => { log.scrollTop = log.
 for (const model of room.models) picker.add(new Option(model, model));
 picker.value = room.model;
 picker.onchange = () => chatService.selectModel(picker.value);
-$('options').onclick = () => $('settings').showModal();
+$('options').onclick = () => openPanel($('settings'), $('options'));
 
 // Preserve the existing local wallpaper preference from the earlier static mock.
 const wallpaperKey = 'haven.chat.wallpaper';

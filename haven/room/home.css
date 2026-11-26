@@ -43,7 +43,7 @@ body[data-page="home"] #room-nav {
 }
 .room-clock time { font-size: 1.38em; }
 .room-cover h1 {
-  margin: clamp(3px, 1.25svh, 13px) 0 clamp(25px, 6.25svh, 53px);
+  margin: clamp(3px, 1.25svh, 13px) 0 clamp(18px, 4svh, 34px);
   font-size: clamp(28px, 7.7vw, 49px);
   line-height: .98;
   font-weight: 700;
@@ -149,7 +149,8 @@ body[data-page="home"] #room-nav {
               2px 13px 9px -4px #684e364f;
 }
 .calendar-paper {
-  background-image: linear-gradient(125deg, #fffef1d9, #fcfaeed9), var(--grain);
+  background-color: #fffaf2;
+  background-image: linear-gradient(125deg, #fffdf6f2, #fff7ebeb), var(--grain);
 }
 /* Bring out the fibers in the supplied paper tile without tinting the type. */
 .pinned-note::before, .calendar-paper::before, .calendar-leaf::before {
@@ -165,6 +166,10 @@ body[data-page="home"] #room-nav {
   z-index: -1;
 }
 .calendar-paper { isolation: isolate; }
+.calendar-paper::before, .calendar-leaf::before {
+  filter: grayscale(1) brightness(.56) contrast(11) sepia(.75);
+  opacity: .11;
+}
 .calendar-leaf {
   position: absolute;
   z-index: 2;
@@ -175,7 +180,7 @@ body[data-page="home"] #room-nav {
   pointer-events: none;
   isolation: isolate;
   transform-origin: 50% 3%;
-  background: linear-gradient(165deg,#fffdf1,#f6efdc 95%,#e7dac4);
+  background: linear-gradient(165deg,#fffdf6,#fff6e8 95%,#efe0c9);
   box-shadow: 0 4px 5px -2px #69523f50;
 }
 .calendar-leaf .month-heading button { visibility: hidden; }

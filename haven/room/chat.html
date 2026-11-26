@@ -16,6 +16,7 @@
     <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 4-8 8 8 8"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/></g></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="3" width="13" height="15" rx="2"/><path d="M6 8H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2"/></symbol>
+    <symbol id="i-quote" viewBox="0 0 24 24"><path d="M8 8 4 12l4 4m-4-4h9a6 6 0 0 1 6 6"/></symbol>
     <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 0 8m0-12v5h-5"/></symbol>
     <symbol id="i-read" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
     <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></symbol>
@@ -28,7 +29,7 @@
     <header class="chat-heading">
       <a class="round-button" href="/" aria-label="回到首页"><svg><use href="#i-back"/></svg></a>
       <h1>Adrian</h1>
-      <button type="button" class="round-button" id="options" aria-label="聊天设置"><svg><use href="#i-more"/></svg></button>
+      <button type="button" class="round-button" id="options" aria-haspopup="dialog" aria-controls="settings" aria-expanded="false" aria-label="聊天设置"><svg><use href="#i-more"/></svg></button>
     </header>
     <p class="chat-date"><time id="room-date"></time></p>
     <main id="messages" role="log" aria-live="polite" aria-label="与 Adrian 的模拟对话"></main>
@@ -46,7 +47,7 @@
     <nav id="room-nav"></nav>
   </div>
 
-  <dialog id="settings" aria-labelledby="settings-title">
+  <dialog id="settings" class="action-panel" aria-labelledby="settings-title">
     <h2 id="settings-title">聊天设置</h2>
     <label class="setting">模拟模型<select id="model"></select></label>
     <label class="setting">显示双方头像<input id="show-avatars" type="checkbox" checked></label>
@@ -64,10 +65,9 @@
     <button type="button" id="avatar-default"></button>
     <form method="dialog"><button>完成</button></form>
   </dialog>
-  <dialog id="choices" aria-labelledby="choice-title">
+  <dialog id="choices" class="action-panel" aria-labelledby="choice-title">
     <h2 id="choice-title"></h2>
     <div id="choice-list"></div>
-    <form method="dialog"><button>关闭</button></form>
   </dialog>
   <dialog id="photo" aria-label="查看图片">
     <img alt="" id="large-photo">

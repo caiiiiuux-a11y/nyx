@@ -81,7 +81,9 @@ export const chatService = {
     if (index < 0) return;
     const old = messages[index];
     const next = replies[(replies.indexOf(old.text) + 1) % replies.length];
-    const updated = reply(id, next);
+    const audio = old.meta.attachments.some(a => a.kind === 'audio');
+    const updated = reply(id, audio ? old.text : next);
+    if (audio) updated.meta.attachments = [...old.meta.attachments];
     messages[index] = updated;
     persist();
     return updated;
