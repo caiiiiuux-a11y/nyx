@@ -25,12 +25,20 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--room-blue); outline-offset: 2px; }
 :is(input, select, textarea, [contenteditable="true"]):focus { outline: none; }
+/* Let long pages scroll above the footer, leaving its four targets in place. */
+.room-layout {
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
+}
+.room-layout > main { overflow-y: auto; }
 #room-nav {
-  width: min(calc(100% - 24px), 510px);
+  width: min(calc(100% - 44px), 495px);
   flex: none;
   align-self: center;
   justify-self: center;
-  margin: 5px auto max(8px, env(safe-area-inset-bottom));
+  margin: 5px auto max(clamp(12px, 4.4svh, 38px), env(safe-area-inset-bottom));
   padding: 5px 10px;
   display: grid;
   grid-template-columns: repeat(4,minmax(0,1fr));

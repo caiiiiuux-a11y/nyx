@@ -1,13 +1,9 @@
 body[data-page="living"] {
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
   background-image: linear-gradient(#fcf8f270, #fbf6ef80), url('/room/assets/paper-texture.webp');
   background-size: 100% 100%, 250px 130px;
   background-repeat: no-repeat, repeat;
 }
 .living-room {
-  flex: 1;
   width: min(100%, 550px);
   margin: 0 auto;
   padding: max(23px, env(safe-area-inset-top)) clamp(19px, 5.8vw, 34px) 26px;
@@ -122,4 +118,3 @@ body[data-page="living"] {
   border: 1px solid #728e8b; border-radius: 3px;
 }
 .topic-slip.done .topic-actions button::before { content: '✓'; color: white; background: #6f8782; line-height: 12px; text-align: center; }
-body[data-page="living"] #room-nav { position: sticky; bottom: max(7px, env(safe-area-inset-bottom)); z-index: 1; }
