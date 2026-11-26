@@ -41,7 +41,7 @@ a{color:inherit;text-decoration:none}
   <button class="o" data-s="ink"><b>墨河</b><i>ink</i><span>日月</span></button>
   <button class="o" data-s="tree"><b>树</b><i>tree</i><span>日月</span></button>
 </div>
-<p id="note">换好回到 Nyx 的家</p>
+<p id="note">Iris &amp; Adrian · <a href="/credits.html">Nyx / StarFold146</a></p>
 <script>
 (function () {
   /* 记在 nyx_home：ta 是祂（旧值 niao 也认），ink / tree 是 Nyx 原版主页的两种（../index.html 读同一个键） */
@@ -52,6 +52,7 @@ a{color:inherit;text-decoration:none}
     if (b.dataset.s === cur) b.classList.add('on');
     b.onclick = function () {
       var s = b.dataset.s;
+      if (s !== 'ta') { alert('此预览仅开放祂的演示页面。'); return; }
       try { localStorage.setItem(KEY, s); } catch (e) {}
       location.href = s === 'ta' ? 'index.html' : '../index.html';
     };

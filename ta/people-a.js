@@ -28,17 +28,18 @@ const f2 = v => v.toFixed(2);
 const DEMO = {
   home: '/relay', cur: '/relay-three',
   people: [
-    { name: '甲', relay: '/relay', off: false, age: 40 },
+    { name: 'Iris', avatar: '/ta/iris.svg', relay: '/relay', off: false, age: 40 },
     { name: '乙', relay: '/relay-two', off: false, age: 600, busy: 'Bash' },
-    { name: '丙', relay: '/relay-three', off: false, age: 95 },
+    { name: 'Adrian', avatar: '/ta/adrian.svg', relay: '/relay-three', off: false, age: 95 },
     { name: '丁', relay: '/relay-four', off: true, age: 172800 }],
-  group: { name: '一家', relay: '/relay/g', members: ['甲', '乙', '丙'], off: false, age: 18000 }
+  group: { name: '一家', relay: '/relay/g', members: ['Iris', '乙', 'Adrian'], off: false, age: 18000 }
 };
 
 const hstr = s => { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) >>> 0; return h; };
 function sufOf(r) { const S = { '/relay': '', '/relay/g': '_group' }; return r in S ? S[r] : '_' + r.replace(/^\/relay-?/, '').replace(/\W+/g, '_'); }
 function avOf(c) {   // 同聊天页 avOfContact：联系人自带的头像，或 Nyx 个人信息页存的 nyx_avatar{后缀}；都没有就不嵌，星球只画图案
-  if (!LIVE || !c.relay) return '';
+  if (!LIVE) return c.avatar || '';
+  if (!c.relay) return '';
   if (c.avatar && (/^data:image\//.test(c.avatar) || /^\/(?!\/)/.test(c.avatar))) return c.avatar;
   const v = ls('nyx_avatar' + sufOf(c.relay)); if (v && (/^data:image\//.test(v) || /^\/(?!\/)/.test(v))) return v;
   return '';

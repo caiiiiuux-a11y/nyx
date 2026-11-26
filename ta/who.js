@@ -37,7 +37,7 @@ const K_ME = 'nyx_avatar_me', TS = 'nyx_prefs_ts';
 const SYNC_RE = /^nyx_(avatar|bg|cover|profile_remark|stickers|theme|todos|sound|deleted_ids|glass|phrases)/;
 function contacts() { try { const a = JSON.parse(ls('nyx_contacts') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
 function resolve() {
-  if (!LIVE) { HOME = '/relay'; RELAY = '/relay'; NAME = '丙'; ME = '我'; KEY = 'demo'; }
+  if (!LIVE) { HOME = '/relay'; RELAY = '/relay'; NAME = 'Adrian'; ME = 'Iris'; KEY = 'demo'; }
   else {
     const N = window.NYX || {};
     HOME = N.relay || '/relay'; ME = N.meName || '我';
@@ -380,7 +380,7 @@ function loadConfig() {   // 同聊天页：Nyx 的 config.js 给第一只的地
 setupGrain();
 loadConfig().then(() => {
   resolve();
-  if (!LIVE) MEM.set(K_AV, geoAv());
+  if (!LIVE) MEM.set(K_AV, '/ta/adrian.svg');
   paint(); layout(); paintReadings();
   if (!LIVE) setSync('demo'); else if (!ls('nyx_key')) setSync('nokey'); else setSync('');
   probe(); sync(); if (LIVE) setTimeout(sync, 1500);

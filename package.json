@@ -1,0 +1,1 @@
+{"name":"haven-nyx-preview","private":true,"scripts":{"build":"node haven/build.mjs"}}

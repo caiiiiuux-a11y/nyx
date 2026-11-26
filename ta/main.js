@@ -988,6 +988,13 @@ function placeNav() {
       if (e.items.length > 1) { ev.preventDefault(); if (!dial.open) openDial(i); } });
     navEl.appendChild(a); });
 }
+stage.addEventListener('click', ev => {
+  const link = ev.target.closest('a[href]');
+  if (!ev.defaultPrevented && link?.getAttribute('href')?.startsWith('../')) {
+    ev.preventDefault();
+    alert('这个入口属于 Nyx 旧版房间，本次仅开放祂的演示页面。');
+  }
+});
 function layout() {
   const vw = window.innerWidth, vh = window.innerHeight;
   W = Math.round(Math.min(vw, vh * 0.62)); H = vh; stage.style.width = W + 'px';
