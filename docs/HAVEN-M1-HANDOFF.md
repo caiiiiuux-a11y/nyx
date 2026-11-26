@@ -42,3 +42,11 @@
 建议用两批导出来验收本地历史导入器。先核对每一批的所有会话分片，再预览两批之间的差异。清单分别列出新增会话、已有会话追加的消息、重复项和无法匹配或读取的项，保留待定和已排除项，等金金确认后再写入。清单仅说明已提供的导出中有哪些记录。
 
 旧聊天原文检索的建议尚待实现。导入后用本地 BGE-M3 给相邻消息片段建立向量索引，并保留会话和消息编号。查询时结合语义检索和关键词检索，合并候选，再按编号取回原文与前后文。明确的日期或会话可以缩小范围。若多段都合理，就请金金确认。引用须能定位到原消息。Ombre 继续维护已有的长期记忆索引。
+
+### Haven-Ombre 源码对照
+
+只读参考 Yinglianchun 的 Haven-Ombre，版本 `2746223`。作者已停止维护该仓库。新增代码的使用范围及署名要求见 [NOTICE](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/NOTICE.md)。本轮只记录设计取舍。
+
+- 原文以消息为单位保存，带来源消息编号、会话、角色和时间，支持重复导入检测。其原文搜索走 SQLite FTS5 与字符串匹配。向量搜索使用问句向量对记忆桶排序。换一种说法寻找未写进桶的原话，仍需要为聊天片段建立可查的索引。[原文存储](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/raw_events.py#L119-L159) · [原文搜索](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/raw_events.py#L530-L565) · [桶向量搜索](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/embedding_engine.py#L192-L230)
+- 可借鉴低证据时放弃召回，以及命中后回读来源前后文的做法。上游的来源窗口按记忆文件行号读取，小屋应按会话、消息和分支定位聊天原文。[来源窗口](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/source_refs.py#L7-L34)
+- 上游 ChatGPT 解析器按时间展开消息树，仅输出角色、正文和时间。我们的分批导入要保留会话、消息及父节点编号，以便追加、去重，并正确区分重新生成的两个版本。[导入解析](https://github.com/Yinglianchun/Haven-Ombre/blob/2746223f37f1da43195e7997b506b2bd6205a9b0/import_memory.py#L129-L167)
