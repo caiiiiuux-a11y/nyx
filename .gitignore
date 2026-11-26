@@ -17,3 +17,4 @@ relay/stt-sense/stt.log
 relay/stt-sense/stt.pid
 
 /dist/
+/.haven-local/

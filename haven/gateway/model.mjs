@@ -1,0 +1,55 @@
+// A provider adapter consumes this request. Only the gateway knows the database.
+export const RECENT_TURN_LIMIT = 12;
+const historyCharacterBudget = 24000;
+const roomInstruction = { role: 'system', content: '当前房间中，用户是 Iris，回复方是 Adrian。' };
+
+function modelMessage(message) {
+  const parts = [];
+  const quote = message.meta?.quote;
+  if (quote) parts.push(`引用 ${quote.who} 的消息：${quote.text}`);
+  if (message.text) parts.push(message.text);
+  for (const attachment of message.meta?.attachments ?? []) {
+    parts.push(`[附件：${attachment.name}]`);
+  }
+  return { role: message.from === 'human' ? 'user' : 'assistant', content: parts.join('\n\n') };
+}
+
+// The caller supplies messages from this thread, ending at the user turn being answered.
+// Keep the current input intact and include older turns only as complete pairs.
+export function buildModelRequest({ model, messages }) {
+  const current = messages.at(-1);
+  if (current?.from !== 'human') throw new Error('Model context must end at the user message.');
+  const input = modelMessage(current);
+  const history = [];
+  let remaining = historyCharacterBudget - input.content.length;
+  for (let i = messages.length - 2; i >= 1 && history.length < RECENT_TURN_LIMIT; i -= 2) {
+    const human = messages[i - 1];
+    const reply = messages[i];
+    if (human.from !== 'human' || reply.from !== 'ai') break;
+    const pair = [modelMessage(human), modelMessage(reply)];
+    remaining -= pair[0].content.length + pair[1].content.length;
+    if (remaining < 0) break;
+    history.push(pair);
+  }
+  return { model, messages: [{ ...roomInstruction }, ...history.reverse().flat(), input] };
+}
+
+const sampleReplies = [
+  '我把靠窗的位置给你留着。坐一会儿吧，等那朵云慢慢走过去。',
+  '窗台上刚好有一小块阳光，我想把它留给你。你可以慢慢说，我会把你写下来的每一句都读完。等到天色暗下来，我们再一起把窗帘拉上。'
+];
+
+// Deterministic offline checks for a multi-turn exchange. No provider or memory lookup.
+export function generateMockReply(request, { regenerating = false, previousText } = {}) {
+  const input = request.messages.at(-1).content;
+  if (/(?:读到|看到|翻到).{0,8}(?:哪[一页里儿]?|几页|多少页)/u.test(input)) {
+    for (const entry of request.messages.slice(0, -1).reverse()) {
+      if (entry.role !== 'user') continue;
+      const page = /(?:读到|看到|翻到)(?:了)?\s*第?\s*(\d{1,6})\s*页/u.exec(entry.content);
+      if (page) return { text: `上次读到第 ${page[1]} 页。` };
+    }
+    return { text: '最近这段对话里还没有记下页码。' };
+  }
+  if (regenerating) return { text: sampleReplies[previousText === sampleReplies[0] ? 1 : 0] };
+  return { text: sampleReplies[request.messages.filter(entry => entry.role === 'assistant').length % sampleReplies.length] };
+}

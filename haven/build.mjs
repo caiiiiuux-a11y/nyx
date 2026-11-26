@@ -2,7 +2,7 @@ import { cp, mkdir, readdir, writeFile } from 'node:fs/promises';
 
 await Promise.all(['dist/chat', 'dist/room'].map(dir => mkdir(dir, { recursive: true })));
 for (const name of await readdir('haven/room')) {
-  if (name === 'assets' || /\.(css|js)$/.test(name)) {
+  if (name === 'assets' || /\.(css|m?js)$/.test(name)) {
     await cp('haven/room/' + name, 'dist/room/' + name, { recursive: true });
   }
 }

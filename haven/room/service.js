@@ -1,10 +1,8 @@
-// Only synthetic messages and packaged media. Implements the subset of Nyx message fields
-// used by the preview so a future adapter can supply the same view model.
-const assets = {
-  image: { kind: 'image', name: '窗边的兔子', src: '/room/assets/chat-photo.webp' },
-  audio: { kind: 'audio', name: '声音样例', src: '/room/assets/sample.mp3' }
-};
-const models = ['云杉', '月桂'];
+// The public preview uses synthetic messages and packaged media. Only HTML served
+// by the private local gateway opts into its persistent adapter.
+import { assets, models } from './catalog.mjs';
+
+const localGateway = globalThis.document?.documentElement.dataset.chatStore === 'gateway';
 const sessionKey = 'haven.room.demo.v1';
 const examples = [
   ['human', '今天的云很漂亮，\n想分一点给你。', '10:27'],
@@ -42,7 +40,7 @@ const initial = examples.map(([from, text, time, media], i) => ({
 let messages = initial;
 let model = models[0];
 try {
-  const saved = JSON.parse(sessionStorage.getItem(sessionKey));
+  const saved = !localGateway && JSON.parse(sessionStorage.getItem(sessionKey));
   if (saved && Array.isArray(saved.messages) && saved.date === midnight.getTime() && models.includes(saved.model)) {
     messages = saved.messages;
     model = saved.model;
@@ -58,8 +56,7 @@ function reply(id, text) {
   } };
 }
 
-export const chatService = {
-  readingFor(text) { return recordedReadings.get(text); },
+const previewService = {
   room() { return { messages: [...messages], model, models, date: midnight, media: assets }; },
   selectModel(value) {
     if (!models.includes(value)) throw new Error('模型不可用');
@@ -88,4 +85,12 @@ export const chatService = {
     persist();
     return updated;
   }
+};
+
+const adapter = localGateway
+  ? (await import('./gateway-adapter.js')).createGatewayChat(assets)
+  : previewService;
+export const chatService = {
+  ...adapter,
+  readingFor(text) { return recordedReadings.get(text); }
 };

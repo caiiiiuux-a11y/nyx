@@ -1,1 +1,8 @@
-{"name":"haven-nyx-preview","private":true,"scripts":{"build":"node haven/build.mjs"}}
+{
+  "name": "haven-nyx-preview",
+  "private": true,
+  "scripts": {
+    "build": "node haven/build.mjs",
+    "chat:local": "node haven/build.mjs && node haven/gateway/server.mjs"
+  }
+}

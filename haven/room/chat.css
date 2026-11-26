@@ -91,6 +91,9 @@ body[data-page="chat"] button, body[data-page="chat"] textarea, body[data-page="
 .voice output { font: 16px var(--chat-serifs); min-width: 34px; text-align: right; }
 .sample-caption { font: 11px var(--chat-text); color: #765f4f; }
 .composer { padding: 4px clamp(12px,4vw,26px) 6px; }
+.store-status:not([hidden]) { display: flex; align-items: center; gap: 8px; padding: 2px 8px 5px; font-size: 13px; }
+.store-status button { background: transparent; border: 0; min-height: 36px; color: var(--chat-blue); text-decoration: underline; }
+.chat-empty { text-align: center; color: #705844; font: 14px/1.6 var(--chat-text); }
 .pending-details { display: flex; flex-wrap: wrap; gap: 4px; }
 .pending-details button { margin-bottom: 5px; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; padding: 4px 9px; border: 1px solid var(--chat-edge); border-radius: 6px; background: #fff5e7; font-size: 12px !important; }
 .input-shell {

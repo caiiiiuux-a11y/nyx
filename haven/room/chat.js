@@ -5,7 +5,8 @@ import { chatService } from './service.js';
 import { avatarButton } from './avatars.js';
 
 const $ = id => document.getElementById(id);
-const room = chatService.room();
+let room = null;
+let busy = false;
 const composer = $('composer');
 const say = $('say');
 const log = $('messages');
@@ -48,6 +49,35 @@ function toast(text) {
   $('feedback').textContent = text;
   clearTimeout(feedbackTimer);
   feedbackTimer = setTimeout(() => { $('feedback').textContent = ''; }, 1800);
+}
+function storeStatus(message, retry) {
+  $('store-status').hidden = !message;
+  $('store-message').textContent = message;
+  const button = $('store-retry');
+  button.hidden = !retry;
+  button.onclick = retry || null;
+}
+function setBusy(value) {
+  busy = value;
+  const locked = busy || !room;
+  for (const control of [$('send'), $('attach'), picker, quoteChip, attachmentChip]) {
+    control.disabled = locked;
+  }
+  say.readOnly = locked;
+}
+async function writeChat(action, failure, retry) {
+  if (!room || busy) return;
+  setBusy(true);
+  storeStatus('');
+  try { await action(); }
+  catch (error) {
+    const rejected = error.status >= 400 && error.status < 500;
+    storeStatus(error.notice || failure, rejected ? null : retry);
+  }
+  finally {
+    setBusy(false);
+    picker.value = room.model;
+  }
 }
 function hm(ts) {
   const d = new Date(ts);
@@ -183,6 +213,7 @@ function setQuote(value) {
   if (value) say.focus();
 }
 function quoteMessage(m) {
+  if (busy) return;
   setQuote({ id: m.id, who: m.from === 'human' ? 'Iris' : 'Adrian', text: caption(m).slice(0, 120) });
 }
 async function copy(m) {
@@ -201,16 +232,19 @@ async function copy(m) {
   toast(copied ? '已复制' : '请长按文字复制');
 }
 function retryMessage(m) {
-  const row = log.querySelector('[data-id="' + m.id + '"]');
-  const updated = chatService.regenerate(m.id);
-  if (!row || !updated) return;
-  const hadFocus = row.contains(document.activeElement);
-  if (reading && row.contains(reading.button)) stopReading();
-  if (playing && row.contains(playing)) { playing.pause(); playing = null; }
-  const replacement = build(updated);
-  row.replaceWith(replacement);
-  if (hadFocus) replacement.querySelector('.message-actions button').focus({ preventScroll: true });
-  if (updated.meta.attachments.some(a => a.kind === 'audio')) toast('已重新生成语音');
+  return writeChat(async () => {
+    const row = log.querySelector('[data-id="' + m.id + '"]');
+    if (!row) return;
+    const updated = await chatService.regenerate(m.id);
+    if (!updated) return;
+    const hadFocus = row.contains(document.activeElement);
+    if (reading && row.contains(reading.button)) stopReading();
+    if (playing && row.contains(playing)) { playing.pause(); playing = null; }
+    const replacement = build(updated);
+    row.replaceWith(replacement);
+    if (hadFocus) replacement.querySelector('.message-actions button').focus({ preventScroll: true });
+    if (updated.meta.attachments.some(a => a.kind === 'audio')) toast('已重新生成语音');
+  }, '未能确认重新生成的结果。', () => retryMessage(m));
 }
 function menu(m, anchor) {
   const source = m.from === 'ai' ? 'Adrian · 模拟 ' + m.meta.model : 'Iris';
@@ -321,7 +355,10 @@ function build(m) {
     }
   }
   if (m.text) body.append(element('span', 'words', m.text));
-  const stamp = element('time', imageOnly ? 'image-time' : '', hm(m.ts));
+  const dated = new Date(m.ts);
+  const showDay = dated.toDateString() !== new Date().toDateString();
+  const timeLabel = (showDay ? dated.toLocaleDateString('zh-CN') + ' ' : '') + hm(m.ts);
+  const stamp = element('time', imageOnly ? 'image-time' : '', timeLabel);
   stamp.dateTime = m.ts;
   body.append(stamp);
   content.append(body);
@@ -359,16 +396,21 @@ function attach(kind) {
   updateComposer();
 }
 function send() {
+  if (!room || busy) return;
   const text = say.value.trim();
   if (!text && !media) {
     showChoices('声音样例', [['附上本地样音', () => attach('audio')]], $('send'));
     return;
   }
-  for (const m of chatService.send(text, media, quote)) log.append(build(m));
-  say.value = '';
-  setQuote(null);
-  attach('');
-  log.scrollTop = log.scrollHeight;
+  return writeChat(async () => {
+    const additions = await chatService.send(text, media, quote);
+    log.querySelector('.chat-empty')?.remove();
+    for (const m of additions) log.append(build(m));
+    say.value = '';
+    setQuote(null);
+    attach('');
+    log.scrollTop = log.scrollHeight;
+  }, '未能确认发送结果，输入已保留。', send);
 }
 quoteChip.onclick = () => setQuote(null);
 attachmentChip.onclick = () => attach('');
@@ -384,13 +426,37 @@ say.onkeydown = ev => {
     if (say.value.trim() || media) send();
   }
 };
-$('room-date').dateTime = room.date.toLocaleDateString('sv-SE');
-$('room-date').textContent = room.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-log.append(...room.messages.map(build));
-if (room.messages.length > 5) requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
-for (const model of room.models) picker.add(new Option(model, model));
-picker.value = room.model;
-picker.onchange = () => chatService.selectModel(picker.value);
+async function loadRoom() {
+  setBusy(true);
+  log.setAttribute('aria-busy', 'true');
+  storeStatus(chatService.persistent ? '正在读取本机对话…' : '');
+  try {
+    room = await chatService.room();
+    $('room-date').dateTime = room.date.toLocaleDateString('sv-SE');
+    $('room-date').textContent = room.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    if (chatService.persistent) say.placeholder = '写一条本机测试消息…';
+    log.replaceChildren();
+    for (const message of room.messages) log.append(build(message));
+    if (!room.messages.length) log.append(element('p', 'chat-empty', '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
+    if (room.messages.length > 5 || chatService.persistent) requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+    picker.replaceChildren(...room.models.map(model => new Option(model, model)));
+    picker.value = room.model;
+    storeStatus('');
+  } catch {
+    room = null;
+    storeStatus('暂时读不到本机对话。请确认本地服务已启动。', loadRoom);
+  } finally {
+    log.setAttribute('aria-busy', 'false');
+    setBusy(false);
+  }
+}
+function changeModel(value) {
+  return writeChat(async () => {
+    await chatService.selectModel(value);
+    room.model = value;
+  }, '模拟模型的选择尚未确认。', () => changeModel(value));
+}
+picker.onchange = () => changeModel(picker.value);
 $('options').onclick = () => openPanel($('settings'), $('options'));
 
 // Preserve the existing local wallpaper preference from the earlier static mock.
@@ -450,3 +516,7 @@ vp?.addEventListener('scroll', fitViewport);
 say.addEventListener('blur', fitViewport);
 fitViewport();
 updateComposer();
+loadRoom();
+window.addEventListener('pageshow', event => {
+  if (event.persisted && chatService.persistent && !busy) loadRoom();
+});
