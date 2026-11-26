@@ -74,6 +74,22 @@ body[data-page="home"] #room-nav {
   text-align: center;
   border-radius: 11px 13px 10px 14px;
 }
+.pinned-note {
+  isolation: isolate;
+  box-shadow: inset 0 1.5px 1px #fffdf4, inset 0 -1px 1px #ab907536,
+              0 1px 1px #805e4329, 1px 5px 7px -3px #72523d55;
+}
+.pinned-note::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  inset: auto 9% -3px 9%;
+  height: 4px;
+  z-index: -1;
+  background: radial-gradient(ellipse at 18% 0%, #59442e3b, transparent 51%),
+              radial-gradient(ellipse at 86% 0%, #59442e28, transparent 50%);
+  filter: blur(1.6px);
+}
 .pinned-note .animal-pin {
   position: absolute;
   top: 0;
@@ -126,7 +142,11 @@ body[data-page="home"] #room-nav {
   position: relative;
   border-radius: 16px 14px 16px 17px;
   padding: 13px 6px 9px;
-  box-shadow: 0 3px 0 -1px #faefdf, 0 4px 0 -1px #ccb99f, 0 7px 0 -2px #f6ead7, 0 8px 0 -2px #cdb99e, 0 10px 9px #65492a23;
+  box-shadow: inset 0 1.5px 1px #fffef8, 0 1px 1px #8e795745,
+              1px 3px 0 -1px #faf2e3, 1px 4px 0 -1px #cfc0aa,
+              0 6px 0 -1.5px #f3eede, 0 7px 0 -1.5px #ccc2af,
+              1px 9px 0 -2px #efe7d4, 1px 10px 0 -2px #cdbfa8,
+              2px 13px 9px -4px #684e364f;
 }
 .calendar-paper {
   background-image: linear-gradient(125deg, #fffef1d9, #fcfaeed9), var(--grain);
