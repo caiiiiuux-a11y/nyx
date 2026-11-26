@@ -72,7 +72,24 @@
     byId('month-days').replaceChildren(days);
   }
 
+  function turnCorner(back) {
+    const paper = document.querySelector('.calendar-paper');
+    paper.querySelector('.page-corner')?.remove();
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const corner = document.createElement('span');
+    corner.className = back ? 'page-corner back' : 'page-corner';
+    corner.setAttribute('aria-hidden', 'true');
+    paper.append(corner);
+    const turn = corner.animate([
+      { transform: 'scale(.12)', opacity: 0 },
+      { transform: 'scale(1)', opacity: .96, offset: .42 },
+      { transform: 'scale(.15)', opacity: 0 }
+    ], { duration: 320, easing: 'ease-in-out' });
+    turn.onfinish = () => corner.remove();
+  }
+
   function shiftMonth(offset) {
+    turnCorner(offset < 0);
     visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1);
     paintMonth();
   }

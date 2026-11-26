@@ -88,6 +88,14 @@ body[data-page="home"] #room-nav {
   line-height: 1.12;
   margin: 0;
 }
+.days-note {
+  background-image: linear-gradient(135deg, #e2eef1db, #d8e5eadb), var(--grain);
+  border-color: #bdced1;
+}
+.message-note {
+  background-image: linear-gradient(140deg, #f8e7e2dd, #f0dcd7d9), var(--grain);
+  border-color: #ddc3bb;
+}
 .message-note h2 {
   font-size: clamp(13px, 3.3vw, 18px);
   line-height: 1.35;
@@ -120,6 +128,22 @@ body[data-page="home"] #room-nav {
   padding: 13px 6px 9px;
   box-shadow: 0 3px 0 -1px #faefdf, 0 4px 0 -1px #ccb99f, 0 7px 0 -2px #f6ead7, 0 8px 0 -2px #cdb99e, 0 10px 9px #65492a23;
 }
+.calendar-paper {
+  background-image: linear-gradient(125deg, #fffef1d9, #fcfaeed9), var(--grain);
+}
+.page-corner {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 32%;
+  aspect-ratio: 1.25;
+  pointer-events: none;
+  border-bottom-right-radius: 16px;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  background: linear-gradient(143deg, transparent 40%, #baa99280 53%, #fffef3 58%, #dfd8c7 82%, #c2b6a3 98%);
+  transform-origin: bottom right;
+}
+.page-corner.back { left: 1px; right: auto; transform-origin: bottom left; clip-path: polygon(0 0,100% 100%,0 100%); border-radius: 0 0 0 16px; background: linear-gradient(217deg,transparent 40%,#baa99280 53%,#fffef3 58%,#dfd8c7 82%,#c2b6a3 98%); }
 .paper-tab {
   position: absolute;
   top: -8px;
