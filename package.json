@@ -3,6 +3,6 @@
   "private": true,
   "scripts": {
     "build": "node haven/build.mjs",
-    "chat:local": "node haven/build.mjs && node haven/gateway/server.mjs"
+    "chat:local": "node haven/build.mjs && node --env-file-if-exists=.haven-local/embedding.env haven/gateway/server.mjs"
   }
 }

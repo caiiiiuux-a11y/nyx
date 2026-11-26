@@ -362,6 +362,23 @@ function build(m) {
   stamp.dateTime = m.ts;
   body.append(stamp);
   content.append(body);
+  if (m.meta.sourceRefs?.length) {
+    const sources = element('div', 'message-sources');
+    for (const ref of m.meta.sourceRefs) {
+      const button = control('查看原话 #' + ref.messageId, () => {
+        const source = log.querySelector('[data-id="' + Number(ref.messageId) + '"]');
+        if (!source) return toast('本页未载入这条原话。');
+        const current = source.querySelector('.words')?.textContent || '';
+        if (current.slice(ref.start, ref.end) !== ref.excerpt) toast('这条消息后来修改过，引用保留当时的文字。');
+        source.tabIndex = -1;
+        source.focus({ preventScroll: true });
+        source.scrollIntoView({ block: 'center' });
+      });
+      button.textContent = '原话 #' + ref.messageId;
+      sources.append(button);
+    }
+    content.append(sources);
+  }
   if (!me) {
     const actions = element('div', 'message-actions');
     actions.append(control('复制消息', () => copy(m), 'copy'));

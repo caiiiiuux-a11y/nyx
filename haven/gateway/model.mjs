@@ -16,7 +16,7 @@ function modelMessage(message) {
 
 // The caller supplies messages from this thread, ending at the user turn being answered.
 // Keep the current input intact and include older turns only as complete pairs.
-export function buildModelRequest({ model, messages }) {
+export function buildModelRequest({ model, messages, archive }) {
   const current = messages.at(-1);
   if (current?.from !== 'human') throw new Error('Model context must end at the user message.');
   const input = modelMessage(current);
@@ -31,7 +31,17 @@ export function buildModelRequest({ model, messages }) {
     if (remaining < 0) break;
     history.push(pair);
   }
-  return { model, messages: [{ ...roomInstruction }, ...history.reverse().flat(), input] };
+  const request = { model, messages: [{ ...roomInstruction }, ...history.reverse().flat(), input] };
+  // The adapter receives source evidence as structured data separate from instructions.
+  // A real provider adapter can map this to its own retrieval/tool-result format.
+  if (archive) request.archive = archive;
+  return request;
+}
+
+// Local archive access is deliberate. Ordinary chat never triggers indexing.
+export function archiveQuery(text) {
+  const match = /^(?:请(?:你)?[，, ]*)?(?:帮我[ \t]*)?(?:搜(?:索)?|查(?:找|一下)?)(?:一下)?[ \t]*(?:旧聊天|聊天记录|历史聊天)[\s：:,，]*(.*)$/su.exec(text.trim());
+  return match ? match[1].trim() : null;
 }
 
 const sampleReplies = [
@@ -41,6 +51,18 @@ const sampleReplies = [
 
 // Deterministic offline checks for a multi-turn exchange. No provider or memory lookup.
 export function generateMockReply(request, { regenerating = false, previousText } = {}) {
+  if (request.archive) {
+    const { hits, notice, mode } = request.archive;
+    if (mode === 'empty') return { text: '本机聊天库里还没有可检索的旧消息。先发一条普通测试消息，再用「查旧聊天」找它。' };
+    const lines = hits.map(hit => {
+      const who = hit.from === 'human' ? 'Iris' : 'Adrian';
+      return `${who} · 消息 #${hit.messageId}\n「${hit.text}」`;
+    });
+    const result = lines.length
+      ? '找到了可能相关的原话：\n\n' + lines.join('\n\n')
+      : '这次没有找到可以引用的原话。可以再给我一个当时用过的词或更具体的线索。';
+    return { text: notice ? result + '\n\n' + notice : result };
+  }
   const input = request.messages.at(-1).content;
   if (/(?:读到|看到|翻到).{0,8}(?:哪[一页里儿]?|几页|多少页)/u.test(input)) {
     for (const entry of request.messages.slice(0, -1).reverse()) {

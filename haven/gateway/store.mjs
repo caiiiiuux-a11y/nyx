@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { assets, models } from '../room/catalog.mjs';
-import { buildModelRequest, generateMockReply, RECENT_TURN_LIMIT } from './model.mjs';
+import { archiveQuery, buildModelRequest, generateMockReply, RECENT_TURN_LIMIT } from './model.mjs';
+import { createArchiveSearch } from './archive-search.mjs';
+import { createEvidenceStore } from './evidence.mjs';
 
 const thread = 'window';
 
@@ -60,7 +62,7 @@ function messagesFromTurn(turn) {
 
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
-export function openStore(filename, { complete = generateMockReply } = {}) {
+export function openStore(filename, { complete = generateMockReply, embedder } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA busy_timeout=5000;
@@ -97,12 +99,53 @@ export function openStore(filename, { complete = generateMockReply } = {}) {
     }
   }
 
+  function readMessage(id) {
+    if (!Number.isSafeInteger(id) || id < 1) throw new RequestError(400, '消息编号无效');
+    const row = turnById(Math.ceil(id / 2));
+    return row && messagesFromTurn(row).find(message => message.id === id);
+  }
+
+  function readArchiveSource({ messageId }) {
+    const message = readMessage(messageId);
+    if (!message) throw new RequestError(404, '找不到这条消息');
+    const context = [];
+    for (let id = Math.max(1, messageId - 2); id <= Math.min(Number.MAX_SAFE_INTEGER - 1, messageId + 2); id++) {
+      const entry = readMessage(id);
+      if (entry) context.push(entry);
+    }
+    return { thread, message, context };
+  }
+
+  const sources = createEvidenceStore(db, { readMessage, transaction, invalid: text => new RequestError(400, text) });
+  const archiveIndex = createArchiveSearch(db, { embedder, readMessages(requestedThread, beforeId) {
+    if (requestedThread !== thread) return [];
+    return db.prepare('SELECT * FROM turns WHERE id <= ? ORDER BY id').all(Math.floor(beforeId / 2))
+      .filter(row => archiveQuery(JSON.parse(row.draft).text) === null)
+      .flatMap(messagesFromTurn).filter(message => message.id < beforeId);
+  } });
+
+  function searchArchive({ query, limit = 3 }, beforeId = Number.MAX_SAFE_INTEGER) {
+    if (typeof query !== 'string' || !query.trim() || query.length > 1000) {
+      throw new RequestError(400, '请输入 1 至 1000 字的旧聊天线索');
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 5) throw new RequestError(400, '搜索结果数量需为 1 至 5');
+    return archiveIndex.search({ query: query.trim(), limit, thread, beforeId });
+  }
+
   async function makeAnswer(turn, model, previousAnswer) {
     const prior = db.prepare('SELECT * FROM turns WHERE id < ? ORDER BY id DESC LIMIT ?')
       .all(turn.id, RECENT_TURN_LIMIT).reverse();
     const messages = prior.flatMap(messagesFromTurn);
-    messages.push(humanMessage(turn));
-    const request = buildModelRequest({ model, messages });
+    const human = humanMessage(turn);
+    messages.push(human);
+    const query = archiveQuery(human.text);
+    let archive;
+    if (query !== null) {
+      archive = query.length > 0 && query.length <= 1000
+        ? await searchArchive({ query }, human.id)
+        : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
+    }
+    const request = buildModelRequest({ model, messages, archive });
     let result;
     try {
       result = await complete(request, {
@@ -115,7 +158,12 @@ export function openStore(filename, { complete = generateMockReply } = {}) {
     return {
       id: turn.id * 2, from: 'ai', text: result.text,
       ts: previousAnswer?.ts ?? new Date().toISOString(),
-      meta: { speaker: 'Adrian', provider: 'mock', model, thread, fallback: false, attachments: [] }
+      meta: {
+        speaker: 'Adrian', provider: 'mock', model, thread, fallback: false, attachments: [],
+        ...(archive && { sourceRefs: archive.hits.map(({ thread, messageId, start, end, text }) => ({
+          thread, messageId, start, end, excerpt: text
+        })) })
+      }
     };
   }
 
@@ -197,5 +245,8 @@ export function openStore(filename, { complete = generateMockReply } = {}) {
       .run(model);
     return { model };
   }
-  return { history, send, regenerate, selectModel, close: () => db.close() };
+  return {
+    history, send, regenerate, selectModel, searchArchive: input => inRoomOrder(() => searchArchive(input)),
+    readArchiveSource, bindEvidence: sources.bind, evidence: sources.evidence, close: () => db.close()
+  };
 }
