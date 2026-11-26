@@ -113,7 +113,7 @@ body[data-page="diary"] {
 .day-heading h2 { font: 500 23px/1.3 var(--room-serif); }
 .day-heading span { color: var(--slate); font: italic 16px var(--room-serif); }
 .day-heading::after { content: ""; flex: 1; border-bottom: 1px solid var(--line); }
-.task-paper, .memo-paper {
+.task-paper {
   position: relative;
   padding: 14px 18px;
   background: #fffaf2;
@@ -134,27 +134,56 @@ body[data-page="diary"] {
 .task-form input, .memo-paper textarea { color: inherit; font: 16px/1.6 var(--room-cn); }
 .task-form input { flex: 1; width: 0; padding: 5px 0; border: 0; background: transparent; }
 .task-form button { min-width: 38px; min-height: 40px; font-size: 22px; color: var(--slate); }
+.diary-memos { margin: 18px 0 0; padding: 0 2px; }
+.diary-memos h3 { margin: 0 0 9px; }
 .memo-paper {
-  margin: 18px 2px 0;
-  background: linear-gradient(#fff5ebe6, #fff8eddb), url('/room/assets/paper-texture.webp') center/250px 130px;
-  box-shadow: 1px 3px 5px #79513a20;
+  position: relative;
+  margin: 0 0 7px;
+  border: 1px solid #dccdc2;
+  border-radius: 3px 6px 5px 3px;
+  background: linear-gradient(115deg,var(--note-tint),#fffcf5dc), url('/room/assets/paper-texture.webp') center/250px 130px;
+  box-shadow: 0 1px 2px #79513a12;
 }
-.memo-paper::before {
-  position: absolute;
+.iris-note { --note-tint: #f4e5e3eb; }
+.adrian-note { --note-tint: #e2ecebec; }
+.memo-paper summary {
+  display: grid;
+  grid-template-columns: 27px 3.9rem minmax(0,1fr) 9px;
+  align-items: center;
+  gap: 7px;
+  min-height: 43px;
+  padding: 5px 13px 5px 8px;
+  list-style: none;
+  cursor: pointer;
+}
+.memo-paper summary::-webkit-details-marker { display: none; }
+.memo-paper summary img { width: 26px; height: 26px; object-fit: contain; }
+.memo-paper summary strong { font: 600 15px/1.2 var(--room-serif); }
+.memo-paper summary::after {
   content: "";
-  right: 20px;
-  top: -7px;
-  width: 49px;
-  height: 13px;
-  transform: rotate(5deg);
-  background: repeating-linear-gradient(90deg, #b4777e44 0 3px, transparent 3px 6px),
-              repeating-linear-gradient(0deg, #d2989d6b 0 3px, #f5e4dfb5 3px 6px);
+  width: 6px;
+  height: 6px;
+  border-right: 1px solid #8a7b70;
+  border-bottom: 1px solid #8a7b70;
+  transform: rotate(45deg);
 }
+.memo-paper[open] summary::after { transform: rotate(225deg); }
+.memo-preview {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 14px/1.5 var(--room-cn);
+}
+.memo-paper[open] .memo-preview { visibility: hidden; }
 .memo-paper textarea {
   display: block;
-  width: 100%;
-  min-height: 75px;
+  width: calc(100% - 28px);
+  min-height: 4.8em;
+  max-height: 60svh;
+  margin: 0 14px 10px;
   padding: 0;
+  field-sizing: content;
   resize: vertical;
   border: 0;
   border-radius: 0;

@@ -43,9 +43,24 @@
           <button type="submit" aria-label="添加待办">＋</button>
         </form>
       </section>
-      <section class="memo-paper" aria-labelledby="memo-title">
-        <h3 id="memo-title"><label for="day-memo">便签</label></h3>
-        <textarea id="day-memo" rows="3" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
+      <section class="diary-memos" aria-labelledby="memo-title">
+        <h3 id="memo-title">便签</h3>
+        <details class="memo-paper iris-note" data-note-field="memo">
+          <summary>
+            <img src="/room/assets/pin-rabbit.png" alt="" width="60" height="67">
+            <strong lang="en">Iris</strong>
+            <span class="memo-preview"></span>
+          </summary>
+          <textarea id="day-memo" aria-label="Iris 的便签全文" rows="4" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
+        </details>
+        <details class="memo-paper adrian-note" data-note-field="adrianMemo">
+          <summary>
+            <img src="/room/assets/pin-fawn.png" alt="" width="81" height="66">
+            <strong lang="en">Adrian</strong>
+            <span class="memo-preview"></span>
+          </summary>
+          <textarea id="adrian-memo" aria-label="Adrian 的便签全文" rows="4" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
+        </details>
       </section>
       <p id="save-status" role="status"></p>
     </section>

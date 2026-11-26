@@ -9,6 +9,14 @@ const parsed = new Date(requested + 'T12:00:00');
 let selected = /^\d{4}-\d\d-\d\d$/.test(requested) && dateKey(parsed) === requested ? parsed : new Date();
 let entry = readNote(selected);
 let unsaved = false;
+const notes = document.querySelectorAll('[data-note-field]');
+
+function paintNote(note) {
+  const text = entry[note.dataset.noteField];
+  note.querySelector('.memo-preview').textContent = text.trim() || '写一张便签…';
+  const field = note.querySelector('textarea');
+  if (field.value !== text) field.value = text;
+}
 
 function persist(change) {
   entry = unsaved ? entry : readNote(selected);
@@ -25,7 +33,7 @@ function persist(change) {
 }
 
 function updateDayCell(button, record) {
-  const preview = record.tasks.find(task => !task.done)?.text || record.memo || record.tasks[0]?.text || '';
+  const preview = record.tasks.find(task => !task.done)?.text || record.memo || record.adrianMemo || record.tasks[0]?.text || '';
   button.lastElementChild.textContent = preview;
 }
 
@@ -89,7 +97,7 @@ function paintDay() {
   paintCalendar();
   byId('day-heading').textContent = (selected.getMonth() + 1) + '月' + selected.getDate() + '日';
   byId('day-week').textContent = weekName.format(selected);
-  byId('day-memo').value = entry.memo;
+  for (const note of notes) paintNote(note);
   paintTasks();
 }
 
@@ -105,6 +113,7 @@ function selectDay(date) {
   history.replaceState(null, '', url);
   byId('new-task').value = '';
   byId('save-status').textContent = '';
+  for (const note of notes) note.open = false;
   paintDay();
 }
 
@@ -123,7 +132,12 @@ byId('diary-days').onclick = event => {
   selectDay(new Date(selected.getFullYear(), selected.getMonth(), Number(cell.dataset.day)));
   if (event.detail === 0) byId('diary-days').querySelector('[aria-pressed="true"]').focus();
 };
-byId('day-memo').oninput = event => persist(record => { record.memo = event.target.value; });
+for (const note of notes) {
+  note.querySelector('textarea').oninput = event => {
+    persist(record => { record[note.dataset.noteField] = event.target.value; });
+    paintNote(note);
+  };
+}
 byId('task-form').onsubmit = event => {
   event.preventDefault();
   const field = byId('new-task');

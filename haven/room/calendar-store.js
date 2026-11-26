@@ -13,15 +13,16 @@ export function readNote(date) {
     const data = JSON.parse(localStorage.getItem(prefix + dateKey(date)));
     return {
       memo: typeof data?.memo === 'string' ? data.memo : '',
+      adrianMemo: typeof data?.adrianMemo === 'string' ? data.adrianMemo : '',
       tasks: Array.isArray(data?.tasks) ? data.tasks.filter(task => typeof task?.text === 'string') : []
     };
   } catch {
-    return { memo: '', tasks: [] };
+    return { memo: '', adrianMemo: '', tasks: [] };
   }
 }
 
 export function writeNote(date, entry) {
   const key = prefix + dateKey(date);
-  if (entry.memo || entry.tasks.length) localStorage.setItem(key, JSON.stringify(entry));
+  if (entry.memo || entry.adrianMemo || entry.tasks.length) localStorage.setItem(key, JSON.stringify(entry));
   else localStorage.removeItem(key);
 }

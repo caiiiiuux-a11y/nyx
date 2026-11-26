@@ -43,7 +43,7 @@ import { dateKey, readNote } from './calendar-store.js';
       btn.textContent = day;
       btn.setAttribute('aria-label', sheetLabel.format(date) + '，打开当日日记');
       if (dateKey(date) === clockDay) btn.setAttribute('aria-current', 'date');
-      if (note.memo || note.tasks.length) btn.dataset.note = '';
+      if (note.memo || note.adrianMemo || note.tasks.length) btn.dataset.note = '';
       if (day === 1) btn.style.gridColumnStart = String(date.getDay() + 1);
       days.append(btn);
     }
