@@ -88,6 +88,10 @@ body[data-page="home"] #room-nav {
   line-height: 1.12;
   margin: 0;
 }
+.message-note h2 {
+  font-size: clamp(13px, 3.3vw, 18px);
+  line-height: 1.35;
+}
 .days-note #together {
   display: block;
   margin-top: 1px;
