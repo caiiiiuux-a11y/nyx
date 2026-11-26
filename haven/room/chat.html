@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#faf2e9">
+  <title>Adrian · Iris &amp; Adrian’s Room</title>
+  <link rel="stylesheet" href="/room/shared.css">
+  <link rel="stylesheet" href="/room/chat.css">
+  <link rel="icon" href="/room/assets/pin-fawn.png">
+</head>
+<body data-page="chat">
+  <svg aria-hidden="true" class="icon-defs" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 4-8 8 8 8"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/></g></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="3" width="13" height="15" rx="2"/><path d="M6 8H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 0 8m0-12v5h-5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5m-3 0h6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 20V4M5.5 11 12 4l6.5 7"/></symbol>
+  </svg>
+
+  <div class="conversation">
+    <header class="chat-heading">
+      <a class="round-button" href="/" aria-label="回到首页"><svg><use href="#i-back"/></svg></a>
+      <h1>Adrian</h1>
+      <button type="button" class="round-button" id="options" aria-label="聊天设置"><svg><use href="#i-more"/></svg></button>
+    </header>
+    <p class="chat-date"><time id="room-date"></time></p>
+    <main id="messages" role="log" aria-live="polite" aria-label="与 Adrian 的模拟对话"></main>
+    <form id="composer" class="composer">
+      <div class="pending-details">
+        <button type="button" id="quote-chip" hidden title="移除引用"></button>
+        <button type="button" id="attachment-chip" hidden title="移除附件"></button>
+      </div>
+      <div class="input-shell">
+        <button type="button" id="attach" class="input-action" aria-label="添加示例附件"><svg><use href="#i-plus"/></svg></button>
+        <textarea id="say" rows="1" placeholder="写给 Adrian…" aria-label="写给 Adrian"></textarea>
+        <button type="submit" id="send" class="input-action" aria-label="使用声音样例"><svg><use href="#i-mic"/></svg></button>
+      </div>
+    </form>
+    <nav id="room-nav"></nav>
+  </div>
+
+  <dialog id="settings" aria-labelledby="settings-title">
+    <h2 id="settings-title">聊天设置</h2>
+    <label class="setting">模拟模型<select id="model"></select></label>
+    <label class="setting">小鹿标记<input id="show-deer" type="checkbox" checked></label>
+    <label class="wallpaper">聊天底图<input id="wallpaper" type="file" accept="image/jpeg,image/png,image/webp"></label>
+    <button type="button" id="reset-wallpaper">恢复纸纹</button>
+    <p id="settings-status" role="status">图片仅保存在当前浏览器。</p>
+    <form method="dialog"><button>完成</button></form>
+  </dialog>
+  <dialog id="choices" aria-labelledby="choice-title">
+    <h2 id="choice-title"></h2>
+    <div id="choice-list"></div>
+    <form method="dialog"><button>关闭</button></form>
+  </dialog>
+  <dialog id="photo" aria-label="查看图片">
+    <img alt="" id="large-photo">
+    <form method="dialog"><button>关闭图片</button></form>
+  </dialog>
+  <div id="feedback" role="status"></div>
+  <script type="module" src="/room/nav.js"></script>
+  <script type="module" src="/room/chat.js"></script>
+</body>
+</html>

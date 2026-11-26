@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#faf2e9">
+  <title>Iris &amp; Adrian’s Room</title>
+  <link rel="icon" href="/room/assets/pin-fawn.png">
+  <link rel="stylesheet" href="/room/shared.css">
+  <link rel="stylesheet" href="/room/home.css">
+  <script src="/room/home.js" defer></script>
+  <script src="/room/nav.js" defer></script>
+</head>
+<body data-page="home">
+  <main class="room-cover">
+    <div class="room-clock" lang="en">
+      <span id="weekday"></span>
+      <span id="full-date"></span>
+      <time id="local-time"></time>
+    </div>
+    <h1 lang="en">Iris<span class="amp">&amp;</span>Adrian’s<br>Room</h1>
+    <section class="window-scene" aria-label="窗边">
+      <img class="window-art" src="/room/assets/window-fawn-rabbit.webp" alt="纱帘垂在窗边，小鹿与白兔依偎在蓝色软垫上" width="436" height="474">
+      <div class="pinboard">
+        <section class="pinned-note days-note">
+          <img src="/room/assets/pin-fawn.png" alt="" class="animal-pin" width="81" height="66">
+          <h2 lang="en">Days together</h2>
+          <span id="together" aria-label="相伴天数"></span>
+        </section>
+        <section class="pinned-note message-note">
+          <img src="/room/assets/pin-rabbit.png" alt="" class="animal-pin" width="60" height="67">
+          <h2 lang="en">A Note from Adrian</h2>
+          <p>今天也想和你一起，把平凡的日子过成童话。</p>
+        </section>
+      </div>
+    </section>
+    <section class="calendar-scene" aria-label="月历与短句">
+      <div class="calendar-paper">
+        <div class="paper-tab tab-left" aria-hidden="true"></div>
+        <div class="paper-tab tab-right" aria-hidden="true"></div>
+        <div class="month-heading">
+          <button id="prev-month" aria-label="上个月">‹</button>
+          <h2 id="month-label" lang="en"></h2>
+          <button id="next-month" aria-label="下个月">›</button>
+        </div>
+        <div class="weekdays" lang="en" aria-hidden="true">
+          <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+        </div>
+        <div id="month-days" aria-labelledby="month-label" role="group"></div>
+      </div>
+      <p class="river-poem" lang="en">like the<br>river finds<br>the sea</p>
+    </section>
+  </main>
+  <nav id="room-nav" aria-label="主导航"></nav>
+  <dialog id="day-sheet" aria-labelledby="sheet-heading">
+    <form id="day-form">
+      <header>
+        <h2 id="sheet-heading"></h2>
+        <button id="close-sheet" type="button" aria-label="关闭">×</button>
+      </header>
+      <label for="day-memo">便签</label>
+      <textarea rows="3" id="day-memo" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
+      <label for="new-task">待办</label>
+      <ul id="day-tasks"></ul>
+      <div class="task-entry">
+        <input type="text" id="new-task" maxlength="120" placeholder="添一件事">
+        <button type="button" id="add-task" aria-label="添加待办">＋</button>
+      </div>
+      <p id="day-feedback" role="status"></p>
+      <button class="save-note" type="submit">保存到本机</button>
+    </form>
+  </dialog>
+</body>
+</html>
