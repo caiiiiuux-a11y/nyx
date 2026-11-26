@@ -9,7 +9,7 @@
   <link rel="icon" href="/room/assets/pin-fawn.png">
   <link rel="stylesheet" href="/room/shared.css">
   <link rel="stylesheet" href="/room/home.css">
-  <script src="/room/home.js" defer></script>
+  <script type="module" src="/room/home.js"></script>
   <script src="/room/nav.js" defer></script>
 </head>
 <body data-page="home">
@@ -49,27 +49,12 @@
         </div>
         <div id="month-days" aria-labelledby="month-label" role="group"></div>
       </div>
-      <p class="river-poem" lang="en">like the<br>river finds<br>the sea</p>
+      <div class="calendar-aside">
+        <p class="river-poem" lang="en">like the<br>river finds<br>the sea</p>
+        <a class="diary-link" id="diary-link" href="/diary/">日记 <span aria-hidden="true">↗</span></a>
+      </div>
     </section>
   </main>
   <nav id="room-nav" aria-label="主导航"></nav>
-  <dialog id="day-sheet" aria-labelledby="sheet-heading">
-    <form id="day-form">
-      <header>
-        <h2 id="sheet-heading"></h2>
-        <button id="close-sheet" type="button" aria-label="关闭">×</button>
-      </header>
-      <label for="day-memo">便签</label>
-      <textarea rows="3" id="day-memo" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
-      <label for="new-task">待办</label>
-      <ul id="day-tasks"></ul>
-      <div class="task-entry">
-        <input type="text" id="new-task" maxlength="120" placeholder="添一件事">
-        <button type="button" id="add-task" aria-label="添加待办">＋</button>
-      </div>
-      <p id="day-feedback" role="status"></p>
-      <button class="save-note" type="submit">保存到本机</button>
-    </form>
-  </dialog>
 </body>
 </html>

@@ -21,9 +21,10 @@ body {
   background-size: 250px 130px;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
-button, a { -webkit-tap-highlight-color: transparent; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--room-blue); outline-offset: 2px; }
+:is(input, select, textarea, [contenteditable="true"]):focus { outline: none; }
 #room-nav {
   width: min(calc(100% - 24px), 510px);
   flex: none;

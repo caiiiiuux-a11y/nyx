@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#f9f5ef">
+  <title>日记 · Iris &amp; Adrian’s Room</title>
+  <link rel="icon" href="/room/assets/pin-fawn.png">
+  <link rel="stylesheet" href="/room/shared.css">
+  <link rel="stylesheet" href="/room/diary.css">
+  <script type="module" src="/room/diary.js"></script>
+</head>
+<body data-page="diary">
+  <main class="diary">
+    <header class="diary-top">
+      <a href="/" class="back-home"><span aria-hidden="true">‹</span> 首页</a>
+      <h1>日记</h1>
+    </header>
+    <section class="month" aria-label="日历">
+      <div class="month-bar">
+        <h2 lang="en"><span id="month-name"></span> <small id="month-year"></small></h2>
+        <div class="month-controls">
+          <button type="button" id="previous" aria-label="上个月">‹</button>
+          <button type="button" id="today">今天</button>
+          <button type="button" id="next" aria-label="下个月">›</button>
+        </div>
+      </div>
+      <div class="calendar-grid">
+        <div class="week" aria-hidden="true">
+          <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+        </div>
+        <div id="diary-days" role="group" aria-label="选择日记日期"></div>
+      </div>
+    </section>
+    <section class="daily" aria-labelledby="day-heading">
+      <header class="day-heading"><h2 id="day-heading"></h2><span id="day-week" lang="en"></span></header>
+      <section class="task-paper" aria-labelledby="tasks-title">
+        <h3 id="tasks-title">待办</h3>
+        <ul id="day-tasks"></ul>
+        <form id="task-form" class="task-form">
+          <input type="text" id="new-task" aria-label="新待办" maxlength="120" placeholder="添一件事…" autocomplete="off">
+          <button type="submit" aria-label="添加待办">＋</button>
+        </form>
+      </section>
+      <section class="memo-paper" aria-labelledby="memo-title">
+        <h3 id="memo-title"><label for="day-memo">便签</label></h3>
+        <textarea id="day-memo" rows="3" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
+      </section>
+      <p id="save-status" role="status"></p>
+    </section>
+  </main>
+</body>
+</html>
