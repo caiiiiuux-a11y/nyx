@@ -3,6 +3,7 @@
 // Noncommercial use under CC BY-NC 4.0. See /credits.html.
 import { chatService } from './service.js';
 import { avatarButton } from './avatars.js';
+import { getNote, saveMessage } from './pocket-store.js';
 
 const $ = id => document.getElementById(id);
 let room = null;
@@ -14,6 +15,13 @@ const picker = $('model');
 const quoteChip = $('quote-chip');
 const attachmentChip = $('attachment-chip');
 const touchInput = matchMedia('(pointer: coarse)').matches;
+const chatScope = chatService.persistent ? 'gateway' : 'preview';
+const requestedNote = new URLSearchParams(location.search).get('note');
+if (requestedNote !== null) {
+  const back = document.querySelector('.chat-heading a');
+  back.href = '/living/pocket/';
+  back.setAttribute('aria-label', '回到回头聊抽屉');
+}
 let quote = null;
 let media = '';
 let playing = null;
@@ -237,6 +245,8 @@ function retryMessage(m) {
     if (!row) return;
     const updated = await chatService.regenerate(m.id);
     if (!updated) return;
+    const index = room.messages.findIndex(message => message.id === m.id);
+    if (index >= 0) room.messages[index] = updated;
     const hadFocus = row.contains(document.activeElement);
     if (reading && row.contains(reading.button)) stopReading();
     if (playing && row.contains(playing)) { playing.pause(); playing = null; }
@@ -246,16 +256,27 @@ function retryMessage(m) {
     if (updated.meta.attachments.some(a => a.kind === 'audio')) toast('已重新生成语音');
   }, '未能确认重新生成的结果。', () => retryMessage(m));
 }
+async function keepForLater(message) {
+  try {
+    const { created } = await saveMessage(chatScope, message);
+    toast(created ? '已放进客厅的回头聊' : '这条已经在回头聊里了');
+  } catch {
+    toast('纸条暂时没能保存，请再试一次。');
+  }
+}
 function menu(m, anchor) {
   const source = m.from === 'ai' ? 'Adrian · 模拟 ' + m.meta.model : 'Iris';
   const items = [];
   if (m.from === 'ai') items.push(['重试', () => retryMessage(m), 'retry']);
-  items.push(['引用', () => quoteMessage(m), 'quote'], ['复制', () => copy(m), 'copy']);
+  items.push(['放进回头聊', () => keepForLater(m), 'keep'],
+    ['引用', () => quoteMessage(m), 'quote'], ['复制', () => copy(m), 'copy']);
   showChoices(hm(m.ts) + ' · ' + source, items, anchor);
 }
 function addGestureMenu(node, m) {
   let timer, sx, sy;
+  let heldPhoto = false;
   const stop = () => clearTimeout(timer);
+  const interactiveMediaControl = target => target.closest('button:not(.photo-button),input');
   node.tabIndex = 0;
   node.setAttribute('aria-haspopup', 'dialog');
   node.onkeydown = ev => {
@@ -264,18 +285,31 @@ function addGestureMenu(node, m) {
     menu(m, node);
   };
   node.oncontextmenu = ev => {
-    if (ev.target.closest('button,input')) return;
+    if (interactiveMediaControl(ev.target)) return;
     ev.preventDefault();
+    heldPhoto = !!ev.target.closest('.photo-button');
     stop();
     if (!$('choices').open) menu(m, node);
   };
   node.addEventListener('pointerdown', ev => {
-    if (ev.target.closest('button,input')) return;
+    heldPhoto = false;
+    if (interactiveMediaControl(ev.target)) return;
+    const isPhoto = !!ev.target.closest('.photo-button');
     sx = ev.clientX;
     sy = ev.clientY;
     stop();
-    timer = setTimeout(() => { if (!$('choices').open) menu(m, node); }, 520);
+    timer = setTimeout(() => {
+      heldPhoto = isPhoto;
+      if (!$('choices').open) menu(m, node);
+    }, 520);
   });
+  node.addEventListener('click', ev => {
+    if (heldPhoto && ev.detail && ev.target.closest('.photo-button')) {
+      heldPhoto = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  }, true);
   node.addEventListener('pointermove', ev => {
     if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) stop();
   });
@@ -334,6 +368,44 @@ function voiceCard(a) {
   row.append(audio, play, seek, display);
   return row;
 }
+// Adapted from Nyx ta/chat.js scrollToPara / jumpTo: leave the following
+// conversation visible below the source and mark the exact message.
+function focusSource(row, smooth) {
+  row.tabIndex = -1;
+  row.focus({ preventScroll: true });
+  const viewport = log.getBoundingClientRect();
+  const top = log.scrollTop + row.getBoundingClientRect().top - viewport.top - viewport.height / 3;
+  const animate = smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  log.scrollTo({ top, behavior: animate ? 'smooth' : 'instant' });
+}
+async function returnToNote() {
+  let note;
+  try {
+    note = await getNote(requestedNote);
+  } catch {
+    storeStatus('暂时读不到这张纸条。', returnToNote);
+    return;
+  }
+  if (!note?.source) {
+    storeStatus('这张纸条没有可定位的聊天原话。');
+    return;
+  }
+  const source = note.source;
+  const message = room.messages.find(m => m.id === source.id);
+  if (source.scope !== chatScope || !message || message.from !== source.from || message.ts !== source.ts ||
+      (source.thread && source.thread !== (message.meta?.thread || room.thread || 'window'))) {
+    storeStatus('这条原话不在当前对话中。留存的摘录在客厅「回头聊」。');
+    return;
+  }
+  const attachments = message.meta?.attachments || [];
+  if (message.text !== note.text || attachments.length !== note.attachmentNames.length ||
+      attachments.some((a, index) => a.name !== note.attachmentNames[index])) {
+    storeStatus('原消息的内容已经变了。收藏时的摘录在客厅「回头聊」。');
+    return;
+  }
+  storeStatus('');
+  focusSource(log.querySelector('[data-id="' + message.id + '"]'), false);
+}
 function build(m) {
   const me = m.from === 'human';
   const row = element('article', 'msg ' + (me ? 'me' : 'ai'));
@@ -370,17 +442,15 @@ function build(m) {
         if (!source) return toast('本页未载入这条原话。');
         const current = source.querySelector('.words')?.textContent || '';
         if (current.slice(ref.start, ref.end) !== ref.excerpt) toast('这条消息后来修改过，引用保留当时的文字。');
-        source.tabIndex = -1;
-        source.focus({ preventScroll: true });
-        source.scrollIntoView({ block: 'center' });
+        focusSource(source, true);
       });
       button.textContent = '原话 #' + ref.messageId;
       sources.append(button);
     }
     content.append(sources);
   }
+  const actions = element('div', 'message-actions');
   if (!me) {
-    const actions = element('div', 'message-actions');
     actions.append(control('复制消息', () => copy(m), 'copy'));
     actions.append(control('重新生成示例回复', () => retryMessage(m), 'retry'));
     if (m.text) {
@@ -388,13 +458,13 @@ function build(m) {
       read.setAttribute('aria-pressed', 'false');
       actions.append(read);
     }
-    const more = control('更多消息操作', event => menu(m, event.currentTarget), 'more');
-    more.setAttribute('aria-haspopup', 'dialog');
-    more.setAttribute('aria-controls', 'choices');
-    more.setAttribute('aria-expanded', 'false');
-    actions.append(more);
-    content.append(actions);
   }
+  const more = control('更多消息操作', event => menu(m, event.currentTarget), 'more');
+  more.setAttribute('aria-haspopup', 'dialog');
+  more.setAttribute('aria-controls', 'choices');
+  more.setAttribute('aria-expanded', 'false');
+  actions.append(more);
+  content.append(actions);
   addGestureMenu(body, m);
   row.append(content);
   return row;
@@ -421,6 +491,7 @@ function send() {
   }
   return writeChat(async () => {
     const additions = await chatService.send(text, media, quote);
+    room.messages.push(...additions);
     log.querySelector('.chat-empty')?.remove();
     for (const m of additions) log.append(build(m));
     say.value = '';
@@ -455,10 +526,11 @@ async function loadRoom() {
     log.replaceChildren();
     for (const message of room.messages) log.append(build(message));
     if (!room.messages.length) log.append(element('p', 'chat-empty', '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
-    if (room.messages.length > 5 || chatService.persistent) requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
     picker.replaceChildren(...room.models.map(model => new Option(model, model)));
     picker.value = room.model;
     storeStatus('');
+    if (requestedNote !== null) await returnToNote();
+    else if (room.messages.length > 5 || chatService.persistent) requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
   } catch {
     room = null;
     storeStatus('暂时读不到本机对话。请确认本地服务已启动。', loadRoom);

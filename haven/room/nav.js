@@ -2,7 +2,7 @@ const roomNav = document.getElementById('room-nav');
 const rooms = [
   { key: 'home', name: 'Home', label: '首页', icon: 'home', href: '/' },
   { key: 'chat', name: 'Chat', label: '聊天', icon: 'chat', href: '/chat/' },
-  { key: 'living', name: 'Living', label: '客厅', icon: 'memory', note: '一起看书、听歌和记忆柜会在这里。' },
+  { key: 'living', name: 'Living', label: '客厅', icon: 'memory', href: '/living/' },
   { key: 'other', name: 'Other', label: '杂物间', icon: 'other', note: '这里留给以后的设置与小工具。' }
 ];
 const destination = document.createElement('dialog');

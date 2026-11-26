@@ -71,6 +71,18 @@ async function api(req, res, url) {
   if (url.pathname === '/app/history' && req.method === 'GET') {
     return json(res, 200, await store.history(historyOptions(url.searchParams)));
   }
+  const origin = req.headers.origin;
+  if ((origin && origin !== url.origin) || req.headers['sec-fetch-site'] === 'cross-site') {
+    throw new RequestError(403, '此操作仅在本机小屋可用');
+  }
+  const pocket = /^\/app\/pocket(?:\/([^/]+))?$/.exec(url.pathname);
+  if (pocket) {
+    const id = pocket[1];
+    if (req.method === 'GET') return json(res, 200, id ? store.pocket.read(id) : store.pocket.list());
+    if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
+    const input = await readJson(req);
+    return json(res, 200, id ? store.pocket.setDiscussed(id, input) : store.pocket.create(input));
+  }
   const handlers = new Map([
     ['/app/send', store.send], ['/app/model', store.selectModel], ['/app/regenerate', store.regenerate],
     ['/app/archive/search', store.searchArchive], ['/app/archive/read', store.readArchiveSource],
@@ -79,10 +91,6 @@ async function api(req, res, url) {
   const action = handlers.get(url.pathname);
   if (!action) throw new RequestError(404, '接口不存在');
   if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
-  const origin = req.headers.origin;
-  if ((origin && origin !== url.origin) || req.headers['sec-fetch-site'] === 'cross-site') {
-    throw new RequestError(403, '此操作仅在本机聊天页可用');
-  }
   return json(res, 200, await action(await readJson(req)));
 }
 
@@ -94,13 +102,13 @@ function asset(req, res, url) {
   if (/[\\:\0]/.test(pathname)) throw new RequestError(404, '找不到页面');
   let file = resolve(dist, '.' + pathname);
   if (!inside(dist, file)) throw new RequestError(404, '找不到页面');
-  if (pathname === '/chat' || pathname === '/diary' || pathname.endsWith('/')) file = resolve(file, 'index.html');
+  if (['/chat', '/diary', '/living', '/living/pocket'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
   if (!existsSync(file) || !inside(realpathSync(dist), realpathSync(file)) || !statSync(file).isFile()) {
     throw new RequestError(404, '找不到页面');
   }
   const ext = extname(file);
   res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
-  if (file === resolve(dist, 'chat/index.html')) {
+  if (file === resolve(dist, 'chat/index.html') || file === resolve(dist, 'living/pocket/index.html')) {
     res.setHeader('Content-Security-Policy', privateCsp);
     const html = readFileSync(file, 'utf8').replace('<html ', '<html data-chat-store="gateway" ');
     res.end(req.method === 'HEAD' ? undefined : html);

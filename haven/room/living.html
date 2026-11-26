@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#faf4ed">
+  <title>回头聊 · 客厅 · Iris &amp; Adrian’s Room</title>
+  <link rel="icon" href="/room/assets/pin-fawn.png">
+  <link rel="stylesheet" href="/room/shared.css">
+  <link rel="stylesheet" href="/room/living.css">
+  <script type="module" src="/room/living.js"></script>
+  <script src="/room/nav.js" defer></script>
+</head>
+<body data-page="living">
+  <main class="living-room">
+    <header class="living-heading">
+      <div>
+        <a class="living-back" href="/living/"><span aria-hidden="true">‹</span> 客厅</a>
+        <h1>回头聊</h1>
+      </div>
+      <img src="/room/assets/window-fawn-rabbit.webp" alt="" width="436" height="474">
+    </header>
+    <form id="note-form" class="writing-paper">
+      <label for="new-note"><img src="/room/assets/pin-rabbit.png" alt="" width="60" height="67">写张纸条</label>
+      <textarea id="new-note" name="note" rows="2" maxlength="4000" required placeholder="留一句以后想聊的话，或贴个链接…"></textarea>
+      <div class="writing-foot">
+        <span lang="en">Iris</span>
+        <button type="submit" id="save-note" disabled>收好纸条</button>
+      </div>
+    </form>
+    <section class="pocket" aria-label="收好的纸条">
+      <div class="pocket-filters" role="group" aria-label="按聊天进度筛选">
+        <button type="button" data-discussed="false" aria-pressed="true">待聊 <span></span></button>
+        <button type="button" data-discussed="true" aria-pressed="false">聊过 <span></span></button>
+      </div>
+      <div id="pocket-notice" class="pocket-notice" role="status"></div>
+      <div id="read-error" hidden>纸条暂时读不到。 <button type="button" id="retry-read">再试一次</button></div>
+      <ul id="note-list" aria-label="待聊的纸条"></ul>
+      <p id="empty-pocket" hidden></p>
+      <button type="button" id="stamp-idea" hidden>写下邮票的点子</button>
+    </section>
+  </main>
+  <nav id="room-nav" aria-label="主导航"></nav>
+</body>
+</html>

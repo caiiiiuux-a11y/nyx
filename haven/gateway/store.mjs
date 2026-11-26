@@ -3,6 +3,7 @@ import { assets, models } from '../room/catalog.mjs';
 import { archiveQuery, buildModelRequest, generateMockReply, RECENT_TURN_LIMIT } from './model.mjs';
 import { createArchiveSearch } from './archive-search.mjs';
 import { createEvidenceStore } from './evidence.mjs';
+import { createPocketStore } from './pocket.mjs';
 
 const thread = 'window';
 
@@ -246,6 +247,7 @@ export function openStore(filename, { complete = generateMockReply, embedder } =
     return { model };
   }
   return {
+    pocket: createPocketStore(db, RequestError),
     history, send, regenerate, selectModel, searchArchive: input => inRoomOrder(() => searchArchive(input)),
     readArchiveSource, bindEvidence: sources.bind, evidence: sources.evidence, close: () => db.close()
   };
