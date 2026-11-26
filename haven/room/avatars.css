@@ -27,6 +27,9 @@
   border-radius: 50%;
   object-fit: cover;
 }
+/* A speaker change starts a new run; each bubble still owns its message actions. */
+.msg.ai + .msg.ai > .chat-avatar,
+.msg.me + .msg.me > .chat-avatar,
 body.hide-avatars .chat-avatar { display: none; }
 #avatar-preview {
   display: block;
