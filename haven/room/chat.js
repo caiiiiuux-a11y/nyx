@@ -20,7 +20,7 @@ const requestedNote = new URLSearchParams(location.search).get('note');
 if (requestedNote !== null) {
   const back = document.querySelector('.chat-heading a');
   back.href = '/living/pocket/';
-  back.setAttribute('aria-label', '回到回头聊抽屉');
+  back.setAttribute('aria-label', '回到回头聊');
 }
 let quote = null;
 let media = '';

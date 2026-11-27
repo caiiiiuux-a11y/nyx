@@ -18,95 +18,70 @@ body[data-page="living"] {
 .parlor-header p { margin: 0 0 7px; font: italic 17px var(--room-serif); color: #816a56; }
 .parlor-header h1 { margin: 0; font: 500 clamp(32px, 8vw, 46px)/1.2 var(--room-serif); }
 .parlor-header img { width: clamp(82px, 22vw, 115px); height: auto; }
-.drawer-shelf {
-  position: relative;
+.room-doors {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px 19px;
-  margin: 42px 0 0;
-  padding: 0 9px 15px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: clamp(8px, 2.5vw, 22px);
+  row-gap: clamp(22px, 4.2svh, 44px);
+  margin: clamp(20px, 4svh, 42px) 0 0;
+  padding: 0;
   list-style: none;
-  isolation: isolate;
 }
-.drawer-shelf::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: auto 0 0;
-  height: 6px;
-  border-radius: 3px;
-  border: 1px solid #c9ad8b;
-  background: linear-gradient(#f4e4ce, #d5bc9d);
-  box-shadow: 0 5px 9px #73563d20;
-}
-.room-drawer {
-  display: block;
-  position: relative;
-  width: 100%;
-  max-width: 220px;
-  aspect-ratio: 1.72;
-  border-radius: 7px;
-  text-decoration: none;
-  color: #634733;
-  perspective: 500px;
-  -webkit-tap-highlight-color: transparent;
-}
-.drawer-case {
-  position: absolute;
-  inset: 0 0 1px;
-  overflow: hidden;
-  border: 4px solid #b99c7b;
-  border-radius: 7px;
-  background: linear-gradient(#795e47, #bca489 42%, #d7c2a4);
-  box-shadow: inset 0 2px 4px #503b2d55, 0 4px 5px #77584023;
-}
-.drawer-case i {
-  position: absolute;
-  inset: 8px 9px auto;
-  height: 33%;
-  transform: rotate(-3deg);
-  border-radius: 2px;
-  background: #f3e8cf;
-  box-shadow: 0 1px 2px #66554155;
-}
-.drawer-case i + i { inset: 13px 15px auto 12px; transform: rotate(2deg); background: #e6e9df; }
-.drawer-front {
-  position: absolute;
-  inset: 2px 3px 0;
+.room-door {
   display: flex;
+  width: 100%;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 12%;
-  border: 1px solid #b69875;
-  border-radius: 4px 4px 6px 6px;
-  background: linear-gradient(110deg, #f4e5d1c9, #e4c8a7db 80%), url('/room/assets/paper-texture.webp') center/230px;
-  box-shadow: inset 0 1px 1px #fff5df, inset 0 -3px 3px #9c795635, 0 3px 3px #8a6b4e26;
-  transition: transform 240ms cubic-bezier(.23,.75,.26,1), box-shadow 240ms;
-  transform-origin: center bottom;
+  padding: 0 0 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--room-ink);
+  font: inherit;
+  text-align: center;
+  text-decoration: none;
+  touch-action: manipulation;
 }
-.drawer-label {
+.door-picture {
+  /* All twelve frames share the same canvas. Crop only its empty margins. */
   position: relative;
-  padding: 3px 12px;
-  color: #674c35;
-  background: linear-gradient(#fcf5e6,#f7ecd5);
-  border: 2px solid #b89b73;
-  border-radius: 3px;
-  box-shadow: 0 1px 1px #fff6e7, inset 0 1px 2px #ac906a38;
-  font: 600 clamp(15px, 4vw, 19px)/1.3 var(--room-serif);
-  letter-spacing: .08em;
+  display: block;
+  width: 100%;
+  max-width: 146px;
+  aspect-ratio: 320 / 490;
+  overflow: hidden;
 }
-.brass-pull {
-  width: 33px;
-  height: 10px;
-  border-radius: 13px 13px 5px 5px;
-  border: 1px solid #967848;
-  background: linear-gradient(#dfc690, #b8995e 58%, #7b623f);
-  box-shadow: inset 0 1px 1px #f3e3b9, 0 2px 2px #70533844;
+.door-picture::before {
+  content: "";
+  position: absolute;
+  inset: 14% 18% 2%;
+  background: radial-gradient(ellipse, #f4deb0a8 0%, #f4deb000 74%);
+  opacity: 0;
+  transition: opacity 200ms;
 }
-.room-drawer.is-opening .drawer-front {
-  transform: translateY(17px) rotateX(-5deg) scale(1.025);
-  box-shadow: inset 0 1px 1px #fff5df, inset 0 -3px 3px #9c795635, 0 8px 8px #74533b33;
+.door-picture img {
+  position: absolute;
+  left: -12.5%;
+  top: -10%;
+  width: 125%;
+  height: auto;
+  transition: opacity 190ms ease-in-out;
 }
-@media (min-width: 580px) { .drawer-shelf { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (prefers-reduced-motion: reduce) { .drawer-front { transition: none; } }
+.open-frame { opacity: 0; }
+.room-door.is-open .open-frame, .room-door.is-open .door-picture::before { opacity: 1; }
+.room-door.is-open .closed-frame { opacity: 0; }
+.door-name {
+  margin-top: 7px;
+  font: 600 clamp(13px, 3.55vw, 18px)/1.4 var(--room-serif);
+  overflow-wrap: anywhere;
+}
+.room-door small {
+  margin-top: 3px;
+  color: #7b6959;
+  font: 12px/1.4 var(--room-cn);
+}
+.room-door[href] small { color: var(--room-blue); }
+@media (max-width: 359px) { .room-doors { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) {
+  .door-picture img, .door-picture::before { transition: none; }
+}
