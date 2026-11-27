@@ -15,7 +15,6 @@ body[data-page="living"] {
   border-bottom: 1px solid #d5bfa888;
   padding-bottom: 15px;
 }
-.parlor-header p { margin: 0 0 7px; font: italic 17px var(--room-serif); color: #816a56; }
 .parlor-header h1 { margin: 0; font: 500 clamp(32px, 8vw, 46px)/1.2 var(--room-serif); }
 .parlor-header img { width: clamp(82px, 22vw, 115px); height: auto; }
 .room-doors {
@@ -73,7 +72,7 @@ body[data-page="living"] {
 .door-name {
   margin-top: 7px;
   font: 600 clamp(13px, 3.55vw, 18px)/1.4 var(--room-serif);
-  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 .room-door small {
   margin-top: 3px;
