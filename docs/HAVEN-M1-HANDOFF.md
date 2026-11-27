@@ -7,6 +7,7 @@
 - **已定方向。** Ombre 已实现查记忆（`breath_search`）、写记忆（`hold`）和整理长内容（`grow`）。小屋后端把这些现成能力注册为阿川可调用的工具，沿用原有数据、索引和写入语义。外部 MCP 客户端与小屋共用这一份记忆。小屋可开放的写入范围另行确认。[Ombre 工具说明](https://github.com/P0luz/Ombre-Brain/blob/main/docs/INTERNALS.md)
 - **开发时先查上游。** 对新增能力，优先比较成熟、多星且有维护记录的开源实现，按实际缺口编写适配代码。聊天后端先对照 Nyx 的 Relay 变更与其上游 Tidal Echo 的消息历史、收发和流式事件接口。遇到通用模型工具调用或 MCP 客户端的缺口，再比较成熟 SDK 的支持范围、依赖和许可。[Nyx Relay 变更](https://github.com/StarFold146/nyx/blob/640e5b29ea8ed9fb0232e3d5814efaaaaa197bdc/relay/CHANGES.md) · [Tidal Echo](https://github.com/anhe2021212-spec/Tidal_Echo) · [AI SDK](https://github.com/vercel/ai) · [官方 MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 - **接口分工。** 共读、共听和记忆作为小屋自己的工具登记；花园等外部服务经 MCP 客户端接入。Skill 按需提供操作说明。Ombre 若已有独立的核心函数，可直接包装；若与服务入口耦合，可先由后端工具调用现有 MCP 服务。具体接法待源码核对。
+- **具体先读哪份代码。** 已锁定的 Tidal Echo 提供 `examples/api_loop.py`，示范了发现 MCP 工具、交给模型选择、执行并回送结果的完整循环，也可展开查看每轮工具动作。接小屋 Gateway 时先对照这一段，再评估当前 Node 后端适合复用的 SDK。工具调用记录与记忆原话分别保留来源。[Tidal Echo 工具循环](https://github.com/anhe2021212-spec/Tidal_Echo/blob/860e5de364de292093dba5571ee6427cdbda060e/examples/api_loop.py#L9-L24)
 - **接续点。** 当前模型仍使用模拟回复。此前已验证本地 BGE-M3 检索聊天原话，真实 Ombre 工具调用属于后续实现。Astra 建议先用合成纸条验证「还有什么想聊的？」能从回头聊抽屉取到答案；记忆接入后，建议让金金可展开查看本轮引用及原话。
 - **搬迁顺序。** 先在本机跑通。迁 VPS 前核对持久化数据、备份恢复及 BGE-M3 的运行位置，验收个人电脑关机后仍可检索，再确定机器规格。
 
