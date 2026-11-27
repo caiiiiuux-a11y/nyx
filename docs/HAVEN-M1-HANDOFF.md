@@ -13,6 +13,8 @@
 
 - **记忆工具接在哪里（代码核对，尚未接通）。** 发送和重生成共用 `haven/gateway/store.mjs` 的 `makeAnswer`，目前只向 `complete` 要一次文本。建议在这个接口里接工具调用循环，先用合成的 `breath_search` 验证模型请求查询、收到同一轮工具结果并回答。实际接入时，Node 后端可先调用运行中的 Ombre 服务，继续共用原有记忆库与 BGE-M3。按部署版本核对工具名、回读原话能力，以及检索是否会刷新记忆权重。写入复用 `hold`，启用范围由金金和阿川决定，接入时要处理重试或重生成导致的重复写入。
 
+- **Ombre 版本差异。** 界面截图标示的 2.16.3 提供 `source_read`，可回读已有来源绑定的记忆原文；`breath_search` 命中还会刷新记忆活跃度。首轮合成测试可用一条带来源的记忆和一次无命中查询，分别验证正常回读与空结果。真实服务的能力以连接时公布的工具清单为准。[2.16.3 工具入口](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/server.py#L686-L813) · [命中后的活跃度更新](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/tools/breath/search.py#L374-L379)
+
 ## 客厅六扇门 · 2026-11-27
 
 金金提供了六组透明开合插画，并定下[本机门廊](http://127.0.0.1:4190/living/)的英文题名 Hallway。奶油格窗门 For Later 通向「回头聊」，点门或门名即可进入。其余五扇标作 Coming soon，可点按预览开合。郁金香绿门为 Listening Room，粉色双门为 Iris & Adrian Mailroom（信件与时间胶囊），胡桃木门为 Reading Room，雾蓝门为 Adrian’s Room，淡紫门为 Darkroom。
