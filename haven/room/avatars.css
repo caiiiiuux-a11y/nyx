@@ -4,6 +4,7 @@
   gap: 0;
 }
 .msg.me { align-items: flex-end; }
+.msg-byline { display: flex; align-items: center; }
 .msg.ai .msg-content, .msg.me .msg-content { max-width: min(90%, 475px); }
 .msg .chat-avatar {
   display: grid;
@@ -28,8 +29,8 @@
   object-fit: cover;
 }
 /* A speaker change starts a new run; each bubble still owns its message actions. */
-.msg.ai + .msg.ai > .chat-avatar,
-.msg.me + .msg.me > .chat-avatar,
+.msg.ai + .msg.ai .chat-avatar,
+.msg.me + .msg.me .chat-avatar,
 body.hide-avatars .chat-avatar { display: none; }
 #avatar-preview {
   display: block;

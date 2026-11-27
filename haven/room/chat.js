@@ -201,10 +201,33 @@ log.addEventListener('scroll', dismissPanel, { passive: true });
 window.addEventListener('resize', dismissPanel);
 window.visualViewport?.addEventListener('resize', dismissPanel);
 window.visualViewport?.addEventListener('scroll', dismissPanel);
-for (const dialog of [$('choices'), $('settings')]) {
+for (const dialog of [$('choices'), $('settings'), $('memory-details')]) {
   dialog.addEventListener('close', () => {
     if (!dialog.open && panel?.dialog === dialog) dismissPanel();
   });
+}
+$('close-memory').onclick = () => {
+  const anchor = panel?.anchor;
+  dismissPanel();
+  anchor?.focus({ preventScroll: true });
+};
+function showMemoryDetails(anchor, tool, refs) {
+  $('memory-title').textContent = anchor.getAttribute('aria-label');
+  const content = $('memory-content');
+  content.replaceChildren();
+  if (tool) {
+    const action = { hold: '写入', breath_search: '查找', dream: '做梦' }[tool.name];
+    const status = { ok: '已收到回执', error: '未完成', uncertain: '结果待核对' }[tool.status];
+    content.append(element('p', 'receipt-status', ['Ombre', action, status].filter(Boolean).join(' · ')));
+  }
+  if (refs.length && tool) content.append(element('p', 'receipt-caption', '原话摘录'));
+  for (const ref of refs) {
+    const characters = Array.from(ref.excerpt.trim());
+    const text = characters.length > 96 ? characters.slice(0, 96).join('') + '…' : characters.join('');
+    content.append(element('blockquote', '', text));
+  }
+  if (tool?.bucketId) content.append(element('p', 'receipt-id', '记忆编号 ' + tool.bucketId));
+  openPanel($('memory-details'), anchor);
 }
 function showChoices(title, items, anchor) {
   $('choice-title').textContent = title;
@@ -414,7 +437,20 @@ function build(m) {
   row.dataset.from = m.from;
   row.dataset.ts = m.ts;
   row.setAttribute('aria-label', me ? 'Iris 的消息' : 'Adrian 的消息');
-  row.append(avatarButton(me ? 'iris' : 'adrian'));
+  const byline = element('div', 'msg-byline');
+  byline.append(avatarButton(me ? 'iris' : 'adrian'));
+  const tool = memoryLab && m.meta.memoryTool;
+  const refs = (m.meta.sourceRefs || []).filter(ref => typeof ref.excerpt === 'string' && ref.excerpt.trim());
+  if (tool || refs.length) {
+    const trigger = control(tool ? '这次用到的记忆' : '原话摘录',
+      event => showMemoryDetails(event.currentTarget, tool, refs), 'more');
+    trigger.className = 'memory-trigger';
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', 'memory-details');
+    byline.append(trigger);
+  }
+  row.append(byline);
   const content = element('div', 'msg-content');
   const attachments = m.meta.attachments || [];
   const imageOnly = attachments.length === 1 && attachments[0].kind === 'image' && !m.text && !m.meta.quote;
@@ -435,33 +471,6 @@ function build(m) {
   stamp.dateTime = m.ts;
   body.append(stamp);
   content.append(body);
-  if (memoryLab && m.meta.memoryTool) {
-    const { name, status, bucketId } = m.meta.memoryTool;
-    const operation = { hold: '写入', breath_search: '查找', dream: '做梦' }[name];
-    const outcome = { ok: '已收到回执', error: '未完成', uncertain: '结果待核对' }[status];
-    if (operation && outcome) {
-      const receipt = element('details', 'memory-receipt');
-      receipt.append(element('summary', '', '这次用到的记忆'));
-      receipt.append(element('p', '', 'Ombre · ' + operation + ' · ' + outcome));
-      if (bucketId) receipt.append(element('p', '', '记忆编号 ' + bucketId));
-      content.append(receipt);
-    }
-  }
-  if (m.meta.sourceRefs?.length) {
-    const sources = element('div', 'message-sources');
-    for (const ref of m.meta.sourceRefs) {
-      const button = control('查看原话 #' + ref.messageId, () => {
-        const source = log.querySelector('[data-id="' + Number(ref.messageId) + '"]');
-        if (!source) return toast('本页未载入这条原话。');
-        const current = source.querySelector('.words')?.textContent || '';
-        if (current.slice(ref.start, ref.end) !== ref.excerpt) toast('这条消息后来修改过，引用保留当时的文字。');
-        focusSource(source, true);
-      });
-      button.textContent = '原话 #' + ref.messageId;
-      sources.append(button);
-    }
-    content.append(sources);
-  }
   const actions = element('div', 'message-actions');
   if (!me) {
     actions.append(control('复制消息', () => copy(m), 'copy'));

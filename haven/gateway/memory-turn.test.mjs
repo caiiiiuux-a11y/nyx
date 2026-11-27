@@ -37,7 +37,17 @@ test('a saved hold receipt survives a lost final answer and is reused on regener
   assert.equal(answer.meta.memoryTool.sourceMessageId, 1);
   assert.match(answer.text, /已.*记进/u);
   assert.equal(store.evidence({ memoryId: 'test-bucket' }).sources[0].text, example.hold);
-  await store.regenerate({ id: answer.id, requestId: 'reroll' });
+  const expectedRefs = [{ thread: 'window', messageId: 1, start: 0, end: example.hold.length, excerpt: example.hold }];
+  assert.deepEqual(answer.meta.sourceRefs, expectedRefs);
+  // The page starts at the reply and does not include its source message.
+  const page = await store.history({ since: 1, limit: 1 });
+  assert.deepEqual(page.messages.map(m => m.id), [answer.id]);
+  assert.deepEqual(page.messages[0].meta.sourceRefs, expectedRefs);
+  const reroll = { id: answer.id, requestId: 'reroll' };
+  const regenerated = await store.regenerate(reroll);
+  const replayed = await store.regenerate(reroll);
+  assert.deepEqual(regenerated.message.meta.sourceRefs, expectedRefs);
+  assert.deepEqual(replayed.message, regenerated.message);
   const search = (await store.send({ requestId: 'search', text: example.search })).messages[1];
   assert.match(search.text, /没有查到/u);
   assert.ok(!search.text.includes(example.fact));
@@ -61,6 +71,7 @@ test('only the three exact unquoted examples can invoke tools, and failed writes
   assert.equal(writes, 0);
   const hold = await store.send({ requestId: 'hold', text: example.hold });
   assert.equal(hold.messages[1].meta.memoryTool.status, 'uncertain');
+  assert.equal(hold.messages[1].meta.sourceRefs, undefined);
   const reroll = await store.regenerate({ requestId: 'again', id: hold.messages[1].id });
   assert.equal(reroll.message.meta.memoryTool.status, 'uncertain');
   assert.equal(writes, 1);

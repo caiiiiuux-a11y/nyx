@@ -56,9 +56,22 @@ function humanMessage(turn) {
   };
 }
 
+// A confirmed hold cites its own immutable draft, including on older saved replies.
+function withHoldSource(answer, human) {
+  const receipt = answer.meta?.memoryTool;
+  if (receipt?.name === 'hold' && receipt.status === 'ok' && receipt.bucketId &&
+      receipt.sourceMessageId === human.id && !answer.meta.sourceRefs?.length) {
+    answer.meta.sourceRefs = [{
+      thread: human.meta.thread, messageId: human.id, start: 0, end: human.text.length, excerpt: human.text
+    }];
+  }
+  return answer;
+}
+
 function messagesFromTurn(turn) {
-  const messages = [humanMessage(turn)];
-  if (turn.answer) messages.push(JSON.parse(turn.answer));
+  const human = humanMessage(turn);
+  const messages = [human];
+  if (turn.answer) messages.push(withHoldSource(JSON.parse(turn.answer), human));
   return messages;
 }
 
@@ -251,7 +264,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       const old = db.prepare('SELECT * FROM regenerations WHERE request_id=?').get(key);
       if (old) {
         if (old.message_id !== id || old.model !== model) throw new RequestError(409, '重试编号已用于不同的回复');
-        return { message: JSON.parse(old.answer) };
+        return { message: withHoldSource(JSON.parse(old.answer), humanMessage(turnById(id / 2))) };
       }
       await finishPending(id / 2);
       const turn = turnById(id / 2);
@@ -262,7 +275,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         db.prepare('UPDATE turns SET answer=? WHERE id=?').run(encoded, turn.id);
         db.prepare('INSERT INTO regenerations(request_id,message_id,model,answer) VALUES(?,?,?,?)').run(key, id, model, encoded);
       });
-      return { message: answer };
+      return { message: withHoldSource(answer, humanMessage(turn)) };
     });
   }
 

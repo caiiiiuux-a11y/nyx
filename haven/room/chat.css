@@ -54,14 +54,17 @@ body[data-page="chat"] button, body[data-page="chat"] textarea, body[data-page="
 }
 .chat-date::after,.chat-date::before { content: ""; width: 35px; height: 1px; background: #b59c83; }
 .memory-lab-guide { margin: 2px 16px; color: var(--chat-ink); font-size: 14px; text-align: center; }
-.memory-lab-guide summary, .memory-receipt summary { cursor: pointer; }
+.memory-lab-guide summary { cursor: pointer; }
 .memory-lab-guide summary { padding: 7px; color: var(--chat-blue); }
 .memory-lab-guide p { margin: 2px auto 6px; max-width: 30em; line-height: 1.5; }
 .lab-examples { display: flex; justify-content: center; gap: 8px; }
 .lab-examples button { min-width: 58px; min-height: 42px; border: 1px solid var(--chat-edge); border-radius: 12px; background: #fff9f2; }
-.memory-receipt { max-width: 100%; margin: 6px 3px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.memory-receipt summary { color: var(--chat-blue); }
-.memory-receipt p { margin: 2px 0; }
+.memory-trigger {
+  display: grid; place-items: center; width: 44px; height: 44px; border: 0; padding: 0;
+  border-radius: 50%; background: transparent;
+}
+.conversation .memory-trigger svg { width: 18px; height: 18px; color: #56798b; }
+.memory-trigger[aria-expanded="true"] { background: #dbe7eb80; }
 #messages { width: 100%; min-height: 0; overflow: auto; overscroll-behavior-y: contain; padding: 12px clamp(14px,4.5vw,33px) 14px; scrollbar-width: thin; scrollbar-color: #caaf9477 transparent; }
 .msg { width: 100%; display: flex; align-items: flex-start; gap: 7px; }
 .msg + .msg { margin-top: 10px; }
@@ -87,8 +90,6 @@ body[data-page="chat"] button, body[data-page="chat"] textarea, body[data-page="
   outline: 2px solid var(--room-mist);
   outline-offset: 2px;
 }
-.message-sources { display: flex; flex-wrap: wrap; gap: 4px 10px; }
-.message-sources button { min-height: 34px; padding: 0 3px; background: transparent; border: 0; color: #42667a; font: 13px var(--chat-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .message-actions button { width: 40px; min-height: 36px; padding: 6px; border: 0; border-radius: 12px; background: transparent; display: grid; place-items: center; color: #805b3d; }
 .message-actions button[aria-pressed="true"] { color: #38677f; background: #dce8eb; }
 .message-actions svg { width: 16px !important; height: 16px !important; }
@@ -123,6 +124,8 @@ body[data-page="chat"] button, body[data-page="chat"] textarea, body[data-page="
 #send { background: #5c91aa; color: #fff; box-shadow: inset 0 1px 2px #335e7555; }
 #say { min-width: 0; flex: 1; display: block; resize: none; box-sizing: border-box; border: 1px solid #e6d7c5; border-radius: 18px; background: #faf0e74d; padding: 7px 11px; font: 16px/22px var(--chat-text); height: 38px; }
 #say::placeholder { color: #866c58; }
+#say { overflow-y: auto; scrollbar-width: none; }
+#say::-webkit-scrollbar { display: none; }
 body.keyboard-open #room-nav { display: none; }
 body[data-page="chat"] dialog {
   max-width: min(90vw,360px); width: 100%; background: #fff8ee; color: var(--chat-ink);
@@ -185,6 +188,19 @@ body[data-page="chat"] #choice-list button {
 body[data-page="chat"] #choice-list button:is(:hover,:focus-visible,:active) { background: #fff8; }
 body[data-page="chat"] #settings { width: min(252px, calc(100vw - 16px)); padding: 12px 15px; }
 body[data-page="chat"] #settings h2 { margin: 0 0 5px; }
+body[data-page="chat"] #memory-details {
+  width: min(260px, calc(100vw - 16px)); max-height: min(50dvh, 330px);
+  padding: 8px 14px 12px; overscroll-behavior: contain; overflow-wrap: anywhere;
+}
+#memory-details header { display: flex; justify-content: space-between; align-items: center; }
+body[data-page="chat"] #memory-title { margin: 0; font: 600 14px/1.5 var(--chat-text); color: #554738; }
+body[data-page="chat"] #close-memory {
+  min-height: 36px; min-width: 36px; margin-right: -6px; padding: 0; border: 0; background: transparent; font-size: 20px;
+}
+#memory-content p { margin: 0; }
+#memory-content .receipt-status { font-size: 12px; color: #625447; }
+#memory-content .receipt-caption, #memory-content .receipt-id { margin-top: 9px; font-size: 12px; color: #665d54; }
+#memory-content blockquote { margin: 4px 0 0; border-left: 2px solid #8da7b3; padding: 2px 0 2px 9px; font-size: 14px; line-height: 1.6; white-space: pre-line; }
 #settings .setting { min-height: 40px; }
 #settings .wallpaper input { max-width: 100%; }
 #large-photo { width: 100%; display: block; }
