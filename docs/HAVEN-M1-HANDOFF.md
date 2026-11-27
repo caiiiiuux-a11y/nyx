@@ -13,7 +13,7 @@
 
 ## 客厅六扇门 · 2026-11-27
 
-金金提供了六组透明开合插画，并定下[本机门廊](http://127.0.0.1:4190/living/)的英文题名 Hallway。奶油格窗门 Ombre Gateway 通向「回头聊」，点门或门名即可进入。其余五扇标作 Coming soon，可点按预览开合。郁金香绿门为 Listening Room，粉色双门为 Iris & Adrian Mailroom（信件与时间胶囊），胡桃木门为 Reading Room，雾蓝门为 Adrian’s Room，淡紫门为 Darkroom。
+金金提供了六组透明开合插画，并定下[本机门廊](http://127.0.0.1:4190/living/)的英文题名 Hallway。奶油格窗门 For Later 通向「回头聊」，点门或门名即可进入。其余五扇标作 Coming soon，可点按预览开合。郁金香绿门为 Listening Room，粉色双门为 Iris & Adrian Mailroom（信件与时间胶囊），胡桃木门为 Reading Room，雾蓝门为 Adrian’s Room，淡紫门为 Darkroom。
 
 蓝门主要属于阿川自己的记忆，房间里的安排留给他决定。
 
