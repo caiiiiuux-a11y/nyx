@@ -6,10 +6,17 @@ import { parseArgs } from 'node:util';
 import { openStore, RequestError } from './store.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
-const { values } = parseArgs({ options: { port: { type: 'string', default: '4190' }, db: { type: 'string' } } });
-const port = Number(values.port);
-if (!/^\d+$/.test(values.port) || !Number.isInteger(port) || port > 65535) throw new Error('Invalid --port');
-const database = resolve(values.db ?? resolve(root, '.haven-local/room.sqlite'));
+const { values } = parseArgs({ options: {
+  port: { type: 'string' }, db: { type: 'string' }, 'memory-lab': { type: 'boolean' }
+} });
+const labMode = values['memory-lab'] === true;
+const portOption = values.port ?? (labMode ? '4191' : '4190');
+const port = Number(portOption);
+if (!/^\d+$/.test(portOption) || !Number.isInteger(port) || port > 65535) throw new Error('Invalid --port');
+if (labMode && (values.db !== undefined || port === 4190)) {
+  throw new Error('The memory lab uses its own chat database and a separate port.');
+}
+const database = labMode ? resolve(root, '.haven-local/ombre-lab/chat.sqlite') : resolve(values.db ?? resolve(root, '.haven-local/room.sqlite'));
 const dist = resolve(root, 'dist');
 if (!existsSync(resolve(dist, 'chat/index.html'))) throw new Error('Run npm run build first.');
 
@@ -20,7 +27,8 @@ function inside(dir, path) {
 
 if (inside(dist, database)) throw new Error('The private database must be outside dist.');
 mkdirSync(dirname(database), { recursive: true, mode: 0o700 });
-const store = openStore(database);
+const memoryLab = labMode ? (await import('./ombre-lab.mjs')).createOmbreLab() : undefined;
+const store = openStore(database, { memoryLab });
 const config = JSON.parse(readFileSync(resolve(root, 'vercel.json'), 'utf8'));
 const baseHeaders = Object.fromEntries(config.headers[0].headers.map(({ key, value }) => [key, value]));
 baseHeaders['X-Content-Type-Options'] = 'nosniff';
@@ -68,6 +76,9 @@ function historyOptions(params) {
 }
 
 async function api(req, res, url) {
+  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {
+    throw new RequestError(404, '记忆试验只开放聊天');
+  }
   if (url.pathname === '/app/history' && req.method === 'GET') {
     return json(res, 200, await store.history(historyOptions(url.searchParams)));
   }
@@ -108,9 +119,10 @@ function asset(req, res, url) {
   }
   const ext = extname(file);
   res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
-  if (file === resolve(dist, 'chat/index.html') || file === resolve(dist, 'living/pocket/index.html')) {
+  if (file === resolve(dist, 'chat/index.html') || (!labMode && file === resolve(dist, 'living/pocket/index.html'))) {
     res.setHeader('Content-Security-Policy', privateCsp);
-    const html = readFileSync(file, 'utf8').replace('<html ', '<html data-chat-store="gateway" ');
+    const mode = labMode ? 'data-chat-store="gateway" data-memory-lab ' : 'data-chat-store="gateway" ';
+    const html = readFileSync(file, 'utf8').replace('<html ', '<html ' + mode);
     res.end(req.method === 'HEAD' ? undefined : html);
     return;
   }
@@ -164,5 +176,5 @@ const server = createServer(async (req, res) => {
 });
 server.on('close', () => store.close());
 server.listen(port, '127.0.0.1', () => {
-  console.log('Haven local mock: http://127.0.0.1:' + server.address().port + '/chat/');
+  console.log((labMode ? 'Haven isolated memory lab' : 'Haven local mock') + ': http://127.0.0.1:' + server.address().port + '/chat/');
 });

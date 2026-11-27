@@ -4,6 +4,7 @@ import { archiveQuery, buildModelRequest, generateMockReply, RECENT_TURN_LIMIT }
 import { createArchiveSearch } from './archive-search.mjs';
 import { createEvidenceStore } from './evidence.mjs';
 import { createPocketStore } from './pocket.mjs';
+import { createLabTurns, labModelRequest } from './memory-turn.mjs';
 
 const thread = 'window';
 
@@ -63,7 +64,7 @@ function messagesFromTurn(turn) {
 
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
-export function openStore(filename, { complete = generateMockReply, embedder } = {}) {
+export function openStore(filename, { complete = generateMockReply, embedder, memoryLab } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA busy_timeout=5000;
@@ -118,6 +119,7 @@ export function openStore(filename, { complete = generateMockReply, embedder } =
   }
 
   const sources = createEvidenceStore(db, { readMessage, transaction, invalid: text => new RequestError(400, text) });
+  const executeLabTool = memoryLab && createLabTurns(db, memoryLab);
   const archiveIndex = createArchiveSearch(db, { embedder, readMessages(requestedThread, beforeId) {
     if (requestedThread !== thread) return [];
     return db.prepare('SELECT * FROM turns WHERE id <= ? ORDER BY id').all(Math.floor(beforeId / 2))
@@ -134,25 +136,47 @@ export function openStore(filename, { complete = generateMockReply, embedder } =
   }
 
   async function makeAnswer(turn, model, previousAnswer) {
-    const prior = db.prepare('SELECT * FROM turns WHERE id < ? ORDER BY id DESC LIMIT ?')
-      .all(turn.id, RECENT_TURN_LIMIT).reverse();
-    const messages = prior.flatMap(messagesFromTurn);
     const human = humanMessage(turn);
-    messages.push(human);
-    const query = archiveQuery(human.text);
     let archive;
-    if (query !== null) {
-      archive = query.length > 0 && query.length <= 1000
-        ? await searchArchive({ query }, human.id)
-        : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
+    let request;
+    if (executeLabTool) {
+      request = labModelRequest(model, human);
+    } else {
+      const query = archiveQuery(human.text);
+      if (query !== null) {
+        archive = query.length > 0 && query.length <= 1000
+          ? await searchArchive({ query }, human.id)
+          : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
+      }
+      const prior = db.prepare('SELECT * FROM turns WHERE id < ? ORDER BY id DESC LIMIT ?')
+        .all(turn.id, RECENT_TURN_LIMIT).reverse();
+      request = buildModelRequest({ model, messages: [...prior.flatMap(messagesFromTurn), human], archive });
     }
-    const request = buildModelRequest({ model, messages, archive });
+    const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text };
     let result;
+    let memoryTool;
+    let memorySources;
     try {
-      result = await complete(request, {
-        regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text
-      });
-      if (typeof result?.text !== 'string') throw new Error('Invalid completion');
+      result = await complete(request, options);
+      if (executeLabTool && result?.toolCall) {
+        const call = result.toolCall;
+        const receipt = await executeLabTool(turn.id, human, call);
+        memoryTool = { name: call.name, status: receipt.status, sourceMessageId: human.id };
+        if (receipt.bucketId) {
+          memoryTool.bucketId = receipt.bucketId;
+          if (call.name === 'hold') sources.bind({ memoryId: receipt.bucketId, messageIds: [human.id] });
+          else memorySources = sources.evidence({ memoryId: receipt.bucketId }).sources
+            .filter(source => source.id < human.id)
+            .map(source => ({ thread: source.thread, messageId: source.id, start: 0,
+              end: source.text.length, excerpt: source.text }));
+        }
+        const messages = [...request.messages,
+          { role: 'assistant', toolCall: call },
+          { role: 'tool', name: call.name, content: JSON.stringify(receipt) }
+        ];
+        result = await complete({ ...request, messages, tools: [] }, options);
+      }
+      if (result?.toolCall || typeof result?.text !== 'string') throw new Error('Invalid completion');
     } catch {
       throw new RequestError(503, '消息已保存，模拟回复暂时不可用，请重试');
     }
@@ -161,6 +185,8 @@ export function openStore(filename, { complete = generateMockReply, embedder } =
       ts: previousAnswer?.ts ?? new Date().toISOString(),
       meta: {
         speaker: 'Adrian', provider: 'mock', model, thread, fallback: false, attachments: [],
+        ...(memoryTool && { memoryTool }),
+        ...(memorySources?.length && { sourceRefs: memorySources }),
         ...(archive && { sourceRefs: archive.hits.map(({ thread, messageId, start, end, text }) => ({
           thread, messageId, start, end, excerpt: text
         })) })

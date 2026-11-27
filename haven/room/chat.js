@@ -16,6 +16,7 @@ const quoteChip = $('quote-chip');
 const attachmentChip = $('attachment-chip');
 const touchInput = matchMedia('(pointer: coarse)').matches;
 const chatScope = chatService.persistent ? 'gateway' : 'preview';
+const memoryLab = document.documentElement.hasAttribute('data-memory-lab');
 const requestedNote = new URLSearchParams(location.search).get('note');
 if (requestedNote !== null) {
   const back = document.querySelector('.chat-heading a');
@@ -434,6 +435,18 @@ function build(m) {
   stamp.dateTime = m.ts;
   body.append(stamp);
   content.append(body);
+  if (memoryLab && m.meta.memoryTool) {
+    const { name, status, bucketId } = m.meta.memoryTool;
+    const operation = { hold: '写入', breath_search: '查找', dream: '做梦' }[name];
+    const outcome = { ok: '已收到回执', error: '未完成', uncertain: '结果待核对' }[status];
+    if (operation && outcome) {
+      const receipt = element('details', 'memory-receipt');
+      receipt.append(element('summary', '', '这次用到的记忆'));
+      receipt.append(element('p', '', 'Ombre · ' + operation + ' · ' + outcome));
+      if (bucketId) receipt.append(element('p', '', '记忆编号 ' + bucketId));
+      content.append(receipt);
+    }
+  }
   if (m.meta.sourceRefs?.length) {
     const sources = element('div', 'message-sources');
     for (const ref of m.meta.sourceRefs) {
@@ -478,6 +491,30 @@ function updateComposer() {
   attachmentChip.hidden = !media;
   attachmentChip.textContent = media ? '×　' + room.media[media].name : '';
 }
+
+async function showMemoryLab() {
+  const { memoryLabExample } = await import('./memory-lab-example.mjs');
+  const panel = element('details', 'memory-lab-guide');
+  panel.append(element('summary', '', '隔离记忆试验'));
+  panel.append(element('p', '', '选一句放入输入框，再点发送。回复由模拟模型生成，记忆工具使用合成测试库。'));
+  const actions = element('div', 'lab-examples');
+  for (const [key, label] of [['hold', '记下'], ['search', '找回'], ['dream', '做梦']]) {
+    actions.append(control(label, () => {
+      if (!room || busy) return;
+      if (say.value.trim() && !Object.values(memoryLabExample).includes(say.value.trim())) {
+        toast('输入框里还有草稿，清空后可以选择示例。');
+        return;
+      }
+      say.value = memoryLabExample[key];
+      panel.open = false;
+      updateComposer();
+      say.focus();
+    }));
+  }
+  panel.append(actions);
+  document.querySelector('.chat-date').replaceWith(panel);
+  say.placeholder = '从上方选择一句试验消息…';
+}
 function attach(kind) {
   media = kind;
   updateComposer();
@@ -520,12 +557,17 @@ async function loadRoom() {
   storeStatus(chatService.persistent ? '正在读取本机对话…' : '');
   try {
     room = await chatService.room();
-    $('room-date').dateTime = room.date.toLocaleDateString('sv-SE');
-    $('room-date').textContent = room.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-    if (chatService.persistent) say.placeholder = '写一条本机测试消息…';
+    if (memoryLab) {
+      if (!document.querySelector('.memory-lab-guide')) await showMemoryLab();
+    } else {
+      $('room-date').dateTime = room.date.toLocaleDateString('sv-SE');
+      $('room-date').textContent = room.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+      if (chatService.persistent) say.placeholder = '写一条本机测试消息…';
+    }
     log.replaceChildren();
     for (const message of room.messages) log.append(build(message));
-    if (!room.messages.length) log.append(element('p', 'chat-empty', '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
+    if (!room.messages.length) log.append(element('p', 'chat-empty',
+      memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
     picker.replaceChildren(...room.models.map(model => new Option(model, model)));
     picker.value = room.model;
     storeStatus('');

@@ -1,3 +1,5 @@
+import { mockLabReply } from './memory-turn.mjs';
+
 // A provider adapter consumes this request. Only the gateway knows the database.
 export const RECENT_TURN_LIMIT = 12;
 const historyCharacterBudget = 24000;
@@ -49,8 +51,9 @@ const sampleReplies = [
   '窗台上刚好有一小块阳光，我想把它留给你。你可以慢慢说，我会把你写下来的每一句都读完。等到天色暗下来，我们再一起把窗帘拉上。'
 ];
 
-// Deterministic offline checks for a multi-turn exchange. No provider or memory lookup.
+// The mock chooses a tool or supplies text. The gateway executes any tool call.
 export function generateMockReply(request, { regenerating = false, previousText } = {}) {
+  if (request.tools) return mockLabReply(request);
   if (request.archive) {
     const { hits, notice, mode } = request.archive;
     if (mode === 'empty') return { text: '本机聊天库里还没有可检索的旧消息。先发一条普通测试消息，再用「查旧聊天」找它。' };

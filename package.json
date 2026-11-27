@@ -4,6 +4,7 @@
   "scripts": {
     "build": "node haven/build.mjs",
     "history:preview": "node haven/import/preview.mjs",
+    "chat:memory-lab": "node haven/build.mjs && node haven/gateway/server.mjs --memory-lab",
     "chat:local": "node haven/build.mjs && node --env-file-if-exists=.haven-local/embedding.env haven/gateway/server.mjs"
   }
 }
