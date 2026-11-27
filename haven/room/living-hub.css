@@ -80,7 +80,6 @@ body[data-page="living"] {
   color: #7b6959;
   font: 12px/1.4 var(--room-cn);
 }
-.room-door[href] small { color: var(--room-blue); }
 @media (max-width: 359px) { .room-doors { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) {
   .door-picture img, .door-picture::before { transition: none; }
