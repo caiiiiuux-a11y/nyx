@@ -15,6 +15,17 @@
 
 - **Ombre 版本差异。** 界面截图标示的 2.16.3 提供 `source_read`，可回读已有来源绑定的记忆原文；`breath_search` 命中还会刷新记忆活跃度。首轮合成测试可用一条带来源的记忆和一次无命中查询，分别验证正常回读与空结果。真实服务的能力以连接时公布的工具清单为准。[2.16.3 工具入口](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/server.py#L686-L813) · [命中后的活跃度更新](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/tools/breath/search.py#L374-L379)
 
+### Ombre 的完整能力与第一轮验收建议
+
+以界面截图对应的 2.16.3 为准。该提交实际注册 16 个工具，小屋接入时应保留它们各自的用途和状态变化。[上游工具入口](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/server.py#L632-L1087)
+
+- **浮现、主动查找、核对原话。** 作者建议新会话开场用 `breath()` 带回置顶和未了的事。`breath_search` 按线索主动查找，`breath_advanced` 支持目录、类型和情绪等筛选，`source_read` 可回读已绑定的证据。要让开场浮现在小屋生效，需要聊天运行时安排这次调用。[作者用法](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/docs/CLAUDE_PROMPT.md#L15-L55)
+- **写入、整理、修订。** `hold` 留下一件值得记的事，可附「为什么记得」；`grow` 整理需要入库的长记录；`trace` 可以纠错、标记解决、归档。`anchor/release` 管理锚点，`pulse` 查看状态。检索排序、衰减和归档仍由同一个 Ombre 实例维护。[工具说明](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/docs/CLAUDE_PROMPT.md#L57-L111)
+- **做梦、感受和自我记录。** `dream` 按需回顾近期有变动的事件（默认 48 小时），可带回旧感受与未完成的承诺。回顾后可以结束；若有新的感受，`hold(feel=True, source_bucket=…)` 保存第一人称记录、关联源事件并尝试标记已消化。已消化的事仍可主动找回。`I` 的自我认知先作候选，实际出现在三个不同日期的梦里后才可以主动升为正式条目。梦会记录候选的见证日期。[梦的编排](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/tools/dream/__init__.py) · [感受与来源](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/tools/hold/feel.py#L58-L84) · [自我记录](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/tools/i/core.py)
+- **承诺和信件。** `plan` 可单独登记未完成的约定；`letter_write / letter_read / letter_lock_update` 保留信的署名、原文和锁。未来信件小屋应沿用这些语义。[承诺与信件工具](https://github.com/P0luz/Ombre-Brain/blob/b6b1eb8f164a3c934e013b3a7eb86ad78a313599/src/server.py#L968-L1063)
+
+Astra 建议首轮在隔离的 Ombre 实例里用合成事件走一遍「记下 → 再次浮现或找回 → 做梦 → 自选是否留下感受 → 核对来源」，观察这些状态能否跨会话保留。金金与阿川仍共同决定真实库的开放范围和触发方式。
+
 ## 客厅六扇门 · 2026-11-27
 
 金金提供了六组透明开合插画，并定下[本机门廊](http://127.0.0.1:4190/living/)的英文题名 Hallway。奶油格窗门 For Later 通向「回头聊」，点门或门名即可进入。其余五扇标作 Coming soon，可点按预览开合。郁金香绿门为 Listening Room，粉色双门为 Iris & Adrian Mailroom（信件与时间胶囊），胡桃木门为 Reading Room，雾蓝门为 Adrian’s Room，淡紫门为 Darkroom。
