@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import secrets
 import sys
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 
@@ -49,31 +49,20 @@ def consent(port, url, form=None):
         socket.close()
 
 
-def call_lab(name, args, old_client_dir, tls_dir, port=18662):
-    # Only these two original modules are loaded. Normalize Windows checkout line endings.
-    with TemporaryDirectory() as library:
-        for filename, digest in CLIENTS.items():
-            source = (Path(old_client_dir) / filename).read_bytes().replace(b"\r\n", b"\n")
-            if hashlib.sha256(source).hexdigest() != digest:
-                raise ValueError("Old home client version changed")
-            (Path(library) / filename).write_bytes(source)
-        sys.path.insert(0, library)
-        try:
-            from capability_client import call_tool
-            from memory_oauth_client import MemoryOAuthClient, new_verifier
-        finally:
-            sys.path.remove(library)
+def call_lab(payload):
+    from capability_client import call_tool
+    from memory_oauth_client import MemoryOAuthClient, new_verifier
 
-    tls_dir = Path(tls_dir)
+    tls_dir = Path("/lab-tls")
     os.environ["SSL_CERT_FILE"] = str(tls_dir / "mcp.pem")
+    port = 18662
     resource = f"https://127.0.0.1:{port}/mcp"
     oauth = MemoryOAuthClient(resource, CALLBACK)
     metadata = oauth.discover()
     # This ID is public. The test password and the short-lived token stay in this process.
     registration = tls_dir / "haven-lab-client-id"
-    client_id = registration.read_text() if registration.is_file() else oauth.register(metadata)
-    if not registration.is_file():
-        registration.write_text(client_id)
+    saved_id = registration.read_text() if registration.is_file() else None
+    client_id = saved_id or oauth.register(metadata)
     state, verifier = secrets.token_urlsafe(), new_verifier()
     url = oauth.authorization_url(metadata, client_id, state, verifier)
     form = ConsentForm()
@@ -86,7 +75,12 @@ def call_lab(name, args, old_client_dir, tls_dir, port=18662):
     if redirect._replace(query="", fragment="").geturl() != CALLBACK or fields.get("state") != [state]:
         raise ValueError("Invalid lab callback")
     token = oauth.exchange(metadata, client_id, fields["code"][0], verifier)
-    result = call_tool(resource, token.access_token, name, args)
+    if client_id != saved_id:
+        # An interrupted first consent must never leave an expired pending client on disk.
+        with NamedTemporaryFile("w", dir=tls_dir, prefix="haven-client-", delete=False) as temp:
+            temp.write(client_id)
+        os.replace(temp.name, registration)
+    result = call_tool(resource, token.access_token, payload["name"], payload["arguments"])
     text = result.get("structuredContent", {}).get("result")
     if not isinstance(text, str):
         text = "\n".join(block["text"] for block in result.get("content", [])
@@ -100,9 +94,13 @@ if __name__ == "__main__":
     try:
         payload = json.load(sys.stdin)
         with TemporaryDirectory() as folder:
-            for filename in CLIENTS:
-                (Path(folder) / filename).write_bytes(payload["clients"][filename].encode())
-            result = call_lab(payload["name"], payload["arguments"], folder, "/lab-tls")
+            for filename, digest in CLIENTS.items():
+                source = payload["clients"][filename].replace("\r\n", "\n").encode()
+                if hashlib.sha256(source).hexdigest() != digest:
+                    raise ValueError("Old home client version changed")
+                (Path(folder) / filename).write_bytes(source)
+            sys.path.insert(0, folder)
+            result = call_lab(payload)
         print(json.dumps(result, ensure_ascii=True))
     except Exception:
         sys.exit("Synthetic Ombre operation failed")
