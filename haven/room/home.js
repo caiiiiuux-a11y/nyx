@@ -48,9 +48,6 @@ import { dateKey, readNote } from './calendar-store.js';
       days.append(btn);
     }
     byId('month-days').replaceChildren(days);
-    const current = new Date();
-    const entryDay = month === current.getMonth() && year === current.getFullYear() ? current : visibleMonth;
-    byId('diary-link').href = '/diary/?date=' + dateKey(entryDay);
   }
 
   // An inert snapshot keeps the old dates on the lifting sheet as the new month appears.
