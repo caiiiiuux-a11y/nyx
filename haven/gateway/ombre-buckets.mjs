@@ -79,14 +79,24 @@ export function createOmbreBuckets(origin, { fetchImpl = fetch } = {}) {
     return rows.filter(row => row && validId(row.id) && !deleted(row));
   }
 
+  async function conceptGraph(cookie) {
+    const graph = await request(cookie, '/api/network?mode=concept');
+    if (!Array.isArray(graph?.nodes) || !Array.isArray(graph.edges)) throw invalidReply();
+    return graph;
+  }
+
   async function list(cookie, params = new URLSearchParams()) {
     const ids = params.getAll('id');
+    const concept = params.get('concept');
     const q = (params.get('q') || '').trim().toLocaleLowerCase();
     if (ids.length > 12 || !ids.every(validId) || q.length > 500) throw new RequestError(400, '请缩小记忆筛选范围。');
     const pinOnly = params.get('pinned') === '1';
     const pageSize = positiveInteger(params.get('pageSize'), 20, 100);
     const requestedPage = positiveInteger(params.get('page'), 1, Number.MAX_SAFE_INTEGER);
-    const rows = (await visibleRows(cookie)).filter(row => {
+    const [allRows, graph] = await Promise.all([visibleRows(cookie), concept === null ? null : conceptGraph(cookie)]);
+    const members = graph && new Set(graph.nodes.find(node => node?.id === concept)?.buckets || []);
+    const rows = allRows.filter(row => {
+      if (members && (archived(row) || !members.has(row.id))) return false;
       if ((ids.length && !ids.includes(row.id)) || (pinOnly && !flag(row.pinned))) return false;
       if (!q) return true;
       return [row.title, row.name, row.content_preview, ...labels(row.tags), ...labels(row.domain)]
@@ -135,8 +145,7 @@ export function createOmbreBuckets(origin, { fetchImpl = fetch } = {}) {
   }
 
   async function network(cookie) {
-    const [graph, rows] = await Promise.all([request(cookie, '/api/network?mode=concept'), visibleRows(cookie)]);
-    if (!Array.isArray(graph?.nodes) || !Array.isArray(graph.edges)) throw invalidReply();
+    const [graph, rows] = await Promise.all([conceptGraph(cookie), visibleRows(cookie)]);
     const visible = new Set(rows.filter(row => !archived(row)).map(row => row.id));
     const memberships = new Map();
     const nodes = [];
@@ -145,13 +154,16 @@ export function createOmbreBuckets(origin, { fetchImpl = fetch } = {}) {
       const ids = new Set(node.buckets.filter(id => visible.has(id)));
       if (!ids.size) continue;
       memberships.set(node.id, ids);
-      nodes.push({ id: node.id, label: node.label, buckets: [...ids], anchor: flag(node.anchor) });
+      nodes.push({ id: node.id, label: node.label, buckets: [...ids], anchor: flag(node.anchor),
+        kind: ['tag', 'wiki', 'mixed'].includes(node.kind) ? node.kind : 'wiki', freq: ids.size });
     }
     const edges = [];
     for (const edge of graph.edges) {
       const left = memberships.get(edge?.source);
       const right = memberships.get(edge?.target);
-      if (left && right && left !== right && !left.isDisjointFrom(right)) edges.push({ source: edge.source, target: edge.target });
+      if (!left || !right || left === right) continue;
+      const weight = left.intersection(right).size;
+      if (weight) edges.push({ source: edge.source, target: edge.target, weight });
     }
     return { nodes, edges };
   }

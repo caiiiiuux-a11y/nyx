@@ -3,7 +3,7 @@
   margin-inline: auto;
   padding: max(16px, env(safe-area-inset-top)) clamp(20px, 5.6vw, 36px) 26px;
 }
-.adrian-room [hidden] { display: none; }
+.adrian-room [hidden] { display: none !important; }
 .hallway-back {
   display: inline-flex;
   align-items: center;
@@ -108,7 +108,8 @@
 #drawer-tools { margin: -16px 0 10px; font-size: 15px; }
 #drawer-tools button { padding-inline: 10px; }
 #drawer-tools .filters { font-family: var(--room-serif); font-size: 17px; }
-#sign-in a { display: inline-flex; align-items: center; min-height: 44px; color: var(--room-blue); }
+#sign-in a, .manage-ombre { display: inline-flex; align-items: center; min-height: 44px; color: var(--room-blue); }
+.manage-ombre { font-size: 13px; text-underline-offset: 3px; }
 .shelf-tools { margin-top: 5px; }
 .filters { display: flex; gap: 4px; }
 .filters button { position: relative; color: #796353; }
@@ -143,28 +144,24 @@
   border: 1px solid var(--room-edge); background: #fffbf4; color: var(--room-ink);
   min-height: 40px; padding: 4px 8px; border-radius: 8px; max-width: 100%;
 }
-#graph select { margin-left: 8px; width: calc(100% - 56px); }
+.graph-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 14px; }
+.graph-controls label { display: grid; gap: 5px; }
+#graph select { min-height: 44px; width: 100%; }
 #constellation {
-  position: relative; height: 226px; margin-top: 10px; overflow: hidden;
+  position: relative; height: clamp(260px, 41svh, 340px); margin-top: 12px; overflow: hidden;
   border-radius: 9px; border: 1px solid #d9cdb9;
   background-color: #fcf7eb;
-  background-image: linear-gradient(#d7c8b52a 1px, transparent 1px), linear-gradient(90deg, #d7c8b52a 1px, transparent 1px);
-  background-size: 15px 15px;
+  background-image: linear-gradient(#d7c8b529 1px, transparent 1px), linear-gradient(90deg, #d7c8b529 1px, transparent 1px), radial-gradient(ellipse at 50% 56%, #f1e9d9, #fcf8ee 88%);
+  background-size: 21px 21px, 21px 21px, cover;
 }
-#links, #points { position: absolute; inset: 0; width: 100%; height: 100%; }
-#points button {
-  position: absolute; width: 28%; min-height: 44px; padding: 0 3px;
-  transform: translate(-50%, -50%); font-size: 12px; line-height: 1.35; color: #674f38;
-}
-#points button::before {
-  content: ""; display: block; width: 7px; height: 7px; border-radius: 50%; margin: 0 auto 3px;
-  background: #9b9078; box-shadow: 0 0 0 3px #fcf7eb;
-}
-#points [aria-pressed="true"]::before { background: #48788c; box-shadow: 0 0 0 3px #d5e1dd; }
-#points button span {
-  display: inline-block; padding: 0 4px; border-radius: 3px; max-width: 100%; background: #fbf6eae8;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+#links { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: pan-y; }
+.graph-caption, .graph-legend { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; color: #746654; font: 12px/1.5 var(--room-cn); }
+.graph-caption { justify-content: space-between; min-height: 44px; }
+.graph-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.graph-legend span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #af725a; }
+.graph-legend span:nth-child(2)::before { background: #638779; }
+.graph-legend span:nth-child(3)::before { background: #ae8643; }
+.graph-legend span:nth-child(4)::before { width: 14px; height: 1px; background: #8e826c; }
 #concept-heading { margin: 14px 0 0; font: 500 17px/1.5 var(--room-serif); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (prefers-reduced-motion: reduce) { .drawer-front { transition: none; } }
