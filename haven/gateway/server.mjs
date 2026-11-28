@@ -274,13 +274,13 @@ function asset(req, res, url) {
   if (/[\\:\0]/.test(pathname)) throw new RequestError(404, '找不到页面');
   let file = resolve(dist, '.' + pathname);
   if (!inside(dist, file)) throw new RequestError(404, '找不到页面');
-  if (['/chat', '/diary', '/living', '/living/pocket', '/living/adrian', '/other'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
+  if (['/chat', '/diary', '/living', '/living/pocket', '/living/adrian', '/living/adrian/memory', '/other'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
   if (!existsSync(file) || !inside(realpathSync(dist), realpathSync(file)) || !statSync(file).isFile()) {
     throw new RequestError(404, '找不到页面');
   }
   const ext = extname(file);
   res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
-  if (memoryDrawer && file === resolve(dist, 'living/adrian/index.html')) {
+  if (memoryDrawer && file === resolve(dist, 'living/adrian/memory/index.html')) {
     res.setHeader('Content-Security-Policy', privateCsp);
     const html = readFileSync(file, 'utf8').replace('<html ', '<html data-memory-drawer="local" ');
     return res.end(req.method === 'HEAD' ? undefined : html);

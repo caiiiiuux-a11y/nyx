@@ -21,78 +21,11 @@
     </header>
     <div class="room-corner">
       <img class="reading-chair" src="/room/assets/armchair-fawn.webp" width="441" height="405" alt="">
-      <button id="drawer" class="room-drawer" type="button" aria-expanded="false" aria-controls="inside" aria-label="打开记忆抽屉">
+      <a id="drawer" class="room-drawer" href="/living/adrian/memory/" aria-label="打开记忆抽屉">
         <span class="drawer-case" aria-hidden="true"><i></i><i></i></span>
         <span class="drawer-front"><span class="drawer-label">记忆抽屉</span><span class="brass-pull" aria-hidden="true"></span></span>
-      </button>
+      </a>
     </div>
-    <section id="inside" class="inside" aria-label="记忆抽屉" hidden>
-      <p id="private-notice" hidden>在连接 chatgptmemory 的本机小屋里可以翻阅记忆。</p>
-      <div id="drawer-tools" hidden>
-        <div class="filters" role="group" aria-label="抽屉视图">
-          <button type="button" id="show-buckets" aria-pressed="true">记忆桶</button>
-          <button type="button" id="show-graph" aria-pressed="false">记忆星图</button>
-        </div>
-        <button type="button" id="refresh">刷新</button>
-      </div>
-      <p id="drawer-status" class="quiet" role="status"></p>
-      <p id="sign-in" class="quiet" hidden><a href="/app/memory/dashboard" target="_blank" rel="noopener noreferrer">登录本机 Ombre ↗</a></p>
-      <section id="graph" aria-label="记忆星图" hidden>
-        <p id="graph-empty" class="quiet" hidden>记忆里的标签和双链会出现在这里。</p>
-        <div id="graph-atlas" hidden>
-          <div class="graph-controls">
-            <label>概念<select id="concept" aria-label="选择概念"></select></label>
-            <label>展开深度<select id="graph-depth"><option value="1">1 层</option><option value="2">2 层</option><option value="3">3 层</option></select></label>
-          </div>
-          <div id="constellation">
-            <canvas id="links" aria-hidden="true"></canvas>
-          </div>
-          <div class="graph-caption">
-            <span id="graph-count" role="status"></span>
-            <button type="button" id="graph-overview" hidden>返回全图</button>
-          </div>
-          <div class="graph-legend"><span>双链</span><span>标签</span><span>两者都有</span><span>共同出现</span></div>
-          <h2 id="concept-heading" hidden>关联记忆</h2>
-        </div>
-      </section>
-      <div id="shelf" hidden>
-        <form id="search-form" role="search" autocomplete="off">
-          <label class="visually-hidden" for="search">搜索记忆</label>
-          <input id="search" name="q" type="search" placeholder="搜索记忆…" maxlength="160" spellcheck="false" enterkeyhint="search">
-          <button type="submit">搜索</button>
-        </form>
-        <div class="shelf-tools">
-          <div class="filters" role="group" aria-label="记忆筛选">
-            <button type="button" id="all" aria-pressed="true">全部</button>
-            <button type="button" id="pinned" aria-pressed="false">已钉选</button>
-          </div>
-          <a class="manage-ombre" href="/app/memory/dashboard" target="_blank" rel="noopener noreferrer">Ombre 管理 ↗</a>
-        </div>
-        <p id="list-status" class="quiet" role="status"></p>
-        <ul id="bucket-list"></ul>
-        <nav id="pagination" aria-label="记忆分页" hidden>
-          <button id="previous" type="button">上一页</button>
-          <span id="page-number"></span>
-          <button id="next" type="button">下一页</button>
-        </nav>
-      </div>
-      <article id="entry" hidden>
-        <div class="entry-tools">
-          <button id="back-list" type="button">‹ 记忆目录</button>
-          <button id="pin-entry" type="button" aria-pressed="false" hidden>钉选</button>
-        </div>
-        <form id="unpin-form" hidden>
-          <label for="importance">取消钉选后的重要度</label>
-          <select id="importance"></select>
-          <button type="submit">确认取消钉选</button>
-          <button type="button" id="cancel-unpin">返回</button>
-        </form>
-        <p id="entry-status" class="quiet" role="status"></p>
-        <h2 id="entry-title" tabindex="-1"></h2>
-        <p id="entry-meta" class="entry-meta"></p>
-        <div id="entry-content"></div>
-      </article>
-    </section>
   </main>
   <nav id="room-nav" aria-label="主导航"></nav>
 </body>
