@@ -5,8 +5,41 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { memoryLabExample } from '../room/memory-lab-example.mjs';
-import { openStore } from './store.mjs';
+import { openStore, RequestError } from './store.mjs';
 import { ProviderContextError } from './usage.mjs';
+
+test('reopening live history or sending via mock never replays a failed paid request', async t => {
+  const requests = [];
+  let ready = false;
+  const store = openStore(':memory:', {
+    models: ['mock', 'gemini'], archiveRecall: false, resumePendingOnRead: false,
+    complete(request) {
+      requests.push(request);
+      if (request.model === 'gemini' && !ready) throw new RequestError(503, '线路暂不可用');
+      return { text: '合成回复', provider: request.model, reportedModel: request.model + '-v1' };
+    }
+  });
+  t.after(() => store.close());
+  const draft = { text: '查旧聊天：蓝色书签', requestId: 'paid', model: 'gemini' };
+  store.selectModel({ model: 'gemini' });
+  await assert.rejects(store.send(draft), { status: 503 });
+  const pending = (await store.history()).messages;
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].meta.retryRequestId, draft.requestId);
+  assert.equal(pending[0].meta.retryModel, draft.model);
+  store.selectModel({ model: 'mock' });
+  await store.send({ text: '一条合成消息', requestId: 'local' });
+  assert.deepEqual(requests.map(r => r.model), ['gemini', 'mock']);
+  store.selectModel({ model: 'gemini' });
+  ready = true;
+  const retry = await store.send(draft);
+  assert.equal(retry.messages[0].id, 1);
+  assert.equal(retry.messages[1].meta.reportedModel, 'gemini-v1');
+  assert.equal(retry.messages[1].meta.provider, 'gemini');
+  assert.equal(requests.at(-1).messages.length, 2);
+  assert.ok(requests.every(request => !request.archive && !request.tools));
+  assert.equal((await store.history()).messages.length, 4);
+});
 
 test('migrates the original window and reopens independent transcripts with only relevant cross-window excerpts', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'haven-windows-'));

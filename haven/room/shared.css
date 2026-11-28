@@ -59,13 +59,3 @@ button { cursor: pointer; }
 #room-nav [aria-current="page"] { color: var(--room-blue); }
 #room-nav [aria-current="page"] img { filter: brightness(0) saturate(100%) invert(36%) sepia(24%) saturate(1010%) hue-rotate(155deg); }
 #room-nav :active { background: #e5d6c63d; }
-.room-destination {
-  width: min(325px,85vw); border: 1px solid var(--room-edge); border-radius: 18px;
-  background: var(--room-paper) url('/room/assets/paper-texture.webp') center / 250px 130px;
-  color: var(--room-ink); padding: 22px; box-shadow: var(--room-shadow);
-}
-.room-destination::backdrop { background: #41302345; }
-.room-destination h2 { font: 600 24px var(--room-serif); margin: 0; }
-.room-destination p { font: 15px/1.6 var(--room-cn); }
-.room-destination a { color:var(--room-blue); font-size: 13px; }
-.room-destination button { float: right; background-color: var(--room-card); border: 1px solid var(--room-edge); border-radius: 20px; padding: 6px 14px; }

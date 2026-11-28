@@ -78,7 +78,7 @@ function messagesFromTurn(turn) {
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
 export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels,
-  provider = 'mock', supportsWindowKey = false } = {}) {
+  provider = 'mock', supportsWindowKey = false, archiveRecall = true, resumePendingOnRead = true } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA busy_timeout=5000;
@@ -158,7 +158,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     return turns.filter(row => archiveQuery(JSON.parse(row.draft).text) === null)
       .flatMap(messagesFromTurn).filter(message => message.id < beforeId);
   }
-  const archiveIndex = createArchiveSearch(db, {
+  const archiveIndex = archiveRecall && createArchiveSearch(db, {
     embedder,
     readMessages(thread, beforeId) {
       const rows = db.prepare('SELECT * FROM turns WHERE thread=? AND id <= ? ORDER BY id').all(thread, Math.floor(beforeId / 2));
@@ -177,6 +177,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
   });
 
   function searchArchive({ query, limit = 3, thread: selected }, beforeId = Number.MAX_SAFE_INTEGER) {
+    if (!archiveIndex) throw new RequestError(404, '这个试聊库没有开启旧聊天检索');
     const { id: thread } = windows.get(selected);
     if (typeof query !== 'string' || !query.trim() || query.length > 1000) {
       throw new RequestError(400, '请输入 1 至 1000 字的旧聊天线索');
@@ -196,12 +197,12 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     } else {
       const prior = windows.recent(thread, turn.id, prefs.contextBudget);
       request = buildModelRequest({ model, messages: [...prior, human], thread, ...prefs });
-      const query = archiveQuery(human.text);
+      const query = archiveIndex ? archiveQuery(human.text) : null;
       if (query !== null) {
         archive = query.length > 0 && query.length <= 1000
           ? await searchArchive({ query, thread }, human.id)
           : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
-      } else if (human.text.trim()) {
+      } else if (archiveIndex && human.text.trim()) {
         const included = request.messages.length - 2;
         const excludeCurrentThread = prefs.contextBudget === 0;
         const excludeMessageIds = excludeCurrentThread ? [] : prior.slice(prior.length - included).map(message => message.id);
@@ -244,7 +245,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       }
       if (result?.toolCall || typeof result?.text !== 'string') throw new Error('Invalid completion');
     } catch (error) {
-      if (error instanceof RangeError) throw error;
+      if (error instanceof RangeError || error instanceof RequestError) throw error;
       throw new RequestError(503, '消息已保存，当前模型暂时无法完成回复，请重试');
     }
     const archiveHits = result.archiveHits ?? archive?.hits;
@@ -252,7 +253,8 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       id: turn.id * 2, from: 'ai', text: result.text,
       ts: previousAnswer?.ts ?? new Date().toISOString(),
       meta: {
-        speaker: 'Adrian', provider, model, thread, fallback: false, attachments: [],
+        speaker: 'Adrian', provider: result.provider ?? provider, model, thread, fallback: false, attachments: [],
+        ...(result.reportedModel && { reportedModel: result.reportedModel }),
         usage,
         ...(memoryTool && { memoryTool }),
         ...(memorySources?.length && { sourceRefs: memorySources }),
@@ -265,7 +267,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
   }
 
   async function finishPending(thread, throughId) {
-    const pending = db.prepare('SELECT * FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 AND id <= ? ORDER BY id');
+    // An explicit-only provider retries just the selected turn, even after a route change.
+    const idCondition = resumePendingOnRead ? 'id <= ?' : 'id = ?';
+    const pending = db.prepare('SELECT * FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 AND ' + idCondition + ' ORDER BY id');
     const save = db.prepare('UPDATE turns SET answer=? WHERE id=? AND answer IS NULL');
     for (const turn of pending.all(thread, throughId)) {
       try {
@@ -291,7 +295,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     const thread = window.id;
     // Recover a turn interrupted by a restart. While a send is running, return the
     // already committed user message immediately instead of waiting for the provider.
-    if (!jobs && db.prepare('SELECT 1 FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 LIMIT 1').get(thread)) {
+    if (resumePendingOnRead && !jobs && db.prepare('SELECT 1 FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 LIMIT 1').get(thread)) {
       try { await inRoomOrder(() => finishPending(thread, Number.MAX_SAFE_INTEGER)); }
       catch (error) {
         if (!(error instanceof RequestError) || error.status !== 503) throw error;
@@ -303,7 +307,15 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       query += ' LIMIT ?';
       params.push(Math.ceil(limit / 2) + 1);
     }
-    const messages = db.prepare(query).all(...params).flatMap(messagesFromTurn).filter(m => m.id > since);
+    const messages = db.prepare(query).all(...params).flatMap(turn => {
+      const entries = messagesFromTurn(turn);
+      if (!resumePendingOnRead && !turn.answer) {
+        // Reuse exactly the original payload when a user retries after reopening the page.
+        entries[0].meta.retryRequestId = turn.request_id;
+        entries[0].meta.retryModel = JSON.parse(turn.draft).model;
+      }
+      return entries;
+    }).filter(m => m.id > since);
     return { messages: limit == null ? messages : messages.slice(0, limit), thread, model: window.model, models,
       contextBudget: window.contextBudget, cacheMode: window.cacheMode,
       cacheCapabilities: { windowKey: supportsWindowKey }, defaultWindowKey: windows.defaultWindowKey(),
@@ -408,7 +420,8 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       }
       return pocket.create(input);
     } },
-    listWindows: windows.list, createWindow: windows.create, configureContext: windows.configure,
+    listWindows: windows.list, windowModel: thread => windows.get(thread).model, createWindow: windows.create,
+    configureContext: windows.configure,
     setDefaultWindowKey: windows.setDefaultWindowKey, defaultWindowKey: windows.defaultWindowKey,
     history, send, regenerate, selectModel, searchArchive: input => inRoomOrder(() => searchArchive(input)),
     readArchiveSource, bindEvidence, evidence, close: () => db.close()

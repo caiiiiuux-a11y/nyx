@@ -19,26 +19,39 @@ export function createGatewayChat(mediaAssets) {
       failure.status = response.status;
       const body = await response.json().catch(() => null);
       if (typeof body?.error === 'string') failure.notice = body.error;
+      failure.retryable = [401, 403, 408, 413, 429].includes(response.status) ||
+        (response.status === 409 && /线路|密钥/.test(failure.notice || ''));
       throw failure;
     }
     return response.json();
   }
 
-  // Reuse the ID and the originally selected model if the response was lost.
-  async function submit(path, input) {
+  // On one route a retry has the same identity. Sending the same draft on a
+  // different model starts a new request, even if an earlier turn is pending.
+  function savedInput(message) {
+    return { text: message.text, media: message.meta.attachments[0]?.kind || '', quote: message.meta.quote ?? null };
+  }
+
+  function savedRequest(message) {
+    return { ...savedInput(message), thread: message.meta.thread, model: message.meta.retryModel,
+      requestId: message.meta.retryRequestId };
+  }
+
+  async function submit(path, input, original) {
     const thread = active.id;
-    const key = JSON.stringify([thread, path, input]);
-    let payload = unconfirmed.get(key);
+    const model = original ? original.model : modelByThread.get(thread);
+    const key = JSON.stringify([thread, path, model, input]);
+    let payload = original ?? unconfirmed.get(key);
     if (!payload) {
-      payload = { ...input, thread, model: modelByThread.get(thread), requestId: crypto.randomUUID() };
-      unconfirmed.set(key, payload);
+      payload = { ...input, thread, model, requestId: crypto.randomUUID() };
     }
+    unconfirmed.set(key, payload);
     try {
       const result = await request(path, payload);
       unconfirmed.delete(key);
       return result;
     } catch (error) {
-      if (error.status >= 400 && error.status < 500 && error.status !== 413) unconfirmed.delete(key);
+      if (error.status >= 400 && error.status < 500 && !error.retryable) unconfirmed.delete(key);
       throw error;
     }
   }
@@ -60,10 +73,23 @@ export function createGatewayChat(mediaAssets) {
       }
     },
     openWindow(id) { active.select(id); },
+    routes() { return request('routes?thread=' + encodeURIComponent(active.id)); },
+    async selectRoute(settings) {
+      const thread = active.id;
+      const state = await request('routes', { ...settings, thread });
+      modelByThread.set(thread, state.model);
+      return state;
+    },
     async room() {
       const thread = active.id;
       const room = await request('history?thread=' + encodeURIComponent(thread));
       modelByThread.set(thread, room.model);
+      for (const message of room.messages) {
+        if (message.meta.retryRequestId) {
+          const original = savedRequest(message);
+          unconfirmed.set(JSON.stringify([thread, 'send', original.model, savedInput(message)]), original);
+        }
+      }
       if (active.id === thread && !new URL(location.href).searchParams.has('thread')) active.select(thread, false);
       return { ...room, date: new Date(), media: mediaAssets };
     },
@@ -77,6 +103,10 @@ export function createGatewayChat(mediaAssets) {
     },
     async send(text, media, quote) {
       const result = await submit('send', { text, media, quote });
+      return result.messages;
+    },
+    async retryPending(message) {
+      const result = await submit('send', savedInput(message), savedRequest(message));
       return result.messages;
     },
     async regenerate(id) {

@@ -92,6 +92,7 @@ body[data-page="chat"] .message-actions .usage-button {
   color: #375b70; text-decoration: underline; text-underline-offset: 3px;
 }
 .me .message-actions { justify-content: flex-end; }
+.message-actions button.pending-retry { width: auto; color: var(--chat-blue); font-size: 12px; }
 .msg[tabindex="-1"]:focus { outline: none; }
 .msg[tabindex="-1"]:focus :is(.bubble,.photo-button) {
   outline: 2px solid var(--room-mist);

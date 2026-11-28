@@ -99,6 +99,11 @@ function createPreview() {
       return summary(next);
     },
     openWindow(id) { active.select(id); },
+    routes() {
+      const current = room();
+      return { thread: current.id, route: 'mock', model: current.model,
+        routes: [{ id: 'mock', label: '本地模拟', models }] };
+    },
     room() {
       const current = room();
       if (!new URL(location.href).searchParams.has('thread')) active.select(current.id, false);

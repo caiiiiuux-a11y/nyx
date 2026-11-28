@@ -1,26 +1,31 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { openStore, RequestError } from './store.mjs';
+import { models as mockModels } from '../room/catalog.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const { values } = parseArgs({ options: {
-  port: { type: 'string' }, db: { type: 'string' }, 'memory-lab': { type: 'boolean' }, 'provider-lab': { type: 'boolean' }
+  port: { type: 'string' }, db: { type: 'string' }, 'memory-lab': { type: 'boolean' },
+  'provider-lab': { type: 'boolean' }, 'live-lab': { type: 'boolean' }
 } });
 const memoryMode = values['memory-lab'] === true;
 const providerMode = values['provider-lab'] === true;
-if (memoryMode && providerMode) throw new Error('Choose one lab per process.');
-const labMode = memoryMode || providerMode;
-const portOption = values.port ?? (providerMode ? '4192' : memoryMode ? '4191' : '4190');
+const liveMode = values['live-lab'] === true;
+if ([memoryMode, providerMode, liveMode].filter(Boolean).length > 1) throw new Error('Choose one lab per process.');
+const labMode = memoryMode || providerMode || liveMode;
+const defaultPort = liveMode ? 4194 : providerMode ? 4192 : memoryMode ? 4191 : 4190;
+const portOption = values.port ?? String(defaultPort);
 const port = Number(portOption);
 if (!/^\d+$/.test(portOption) || !Number.isInteger(port) || port > 65535) throw new Error('Invalid --port');
-if (labMode && (values.db !== undefined || port === 4190 || (providerMode && port === 4191) || (memoryMode && port === 4192))) {
+if (labMode && ([4190,4191,4192,4193,4194].includes(port) && port !== defaultPort || (values.db !== undefined && !liveMode))) {
   throw new Error('Use the dedicated lab database and a separate port.');
 }
-const labDir = providerMode ? 'provider-lab' : 'ombre-lab';
-const database = labMode ? resolve(root, '.haven-local', labDir, 'chat.sqlite') : resolve(values.db ?? resolve(root, '.haven-local/room.sqlite'));
+const labDir = liveMode ? 'live-lab' : providerMode ? 'provider-lab' : 'ombre-lab';
+const database = resolve(values.db ?? (labMode ? resolve(root, '.haven-local', labDir, 'chat.sqlite') : resolve(root, '.haven-local/room.sqlite')));
 const dist = resolve(root, 'dist');
 if (!existsSync(resolve(dist, 'chat/index.html'))) throw new Error('Run npm run build first.');
 
@@ -30,10 +35,32 @@ function inside(dir, path) {
 }
 
 if (inside(dist, database)) throw new Error('The private database must be outside dist.');
+if (liveMode && values.db !== undefined) {
+  // Isolated integration tests can use a disposable database with a loopback-only provider.
+  const endpoint = new URL(process.env.HAVEN_TRIAL_BASE_URL);
+  if (!['127.0.0.1','[::1]'].includes(endpoint.hostname) ||
+      !inside(realpathSync(tmpdir()), realpathSync(dirname(database))) ||
+      (existsSync(database) && !inside(realpathSync(tmpdir()), realpathSync(database)))) {
+    throw new Error('A live lab database override requires a temporary database and a local test provider.');
+  }
+}
 mkdirSync(dirname(database), { recursive: true, mode: 0o700 });
-const lab = labMode ? (await import('./ombre-lab.mjs')).createOmbreLab() : undefined;
+const lab = (memoryMode || providerMode) ? (await import('./ombre-lab.mjs')).createOmbreLab() : undefined;
 const storeOptions = memoryMode ? { memoryLab: lab } : {};
 let fixture;
+let live;
+if (liveMode) {
+  const { createLiveRoutes } = await import('./live-routes.mjs');
+  live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY });
+  Object.assign(storeOptions, { provider: 'live-lab', models: live.models,
+    supportsWindowKey: true, archiveRecall: false, resumePendingOnRead: false,
+    complete(request, options) {
+      if (request.model !== store.windowModel(request.thread)) {
+        throw new RequestError(409, '本窗口的线路已经改变。请切回原线路后重试这条消息。');
+      }
+      return live.complete(request, options);
+    } });
+}
 if (providerMode) {
   const { startProviderFixture } = await import('./provider-fixture.mjs');
   const { createChatCompletions } = await import('./chat-completions.mjs');
@@ -48,6 +75,11 @@ const baseHeaders = Object.fromEntries(config.headers[0].headers.map(({ key, val
 baseHeaders['X-Content-Type-Options'] = 'nosniff';
 baseHeaders['Cache-Control'] = 'no-store';
 baseHeaders['Cross-Origin-Resource-Policy'] = 'same-origin';
+if (liveMode) {
+  baseHeaders['Referrer-Policy'] = 'no-referrer';
+  baseHeaders['X-Frame-Options'] = 'DENY';
+  baseHeaders['Content-Security-Policy'] += "; frame-ancestors 'none'";
+}
 const privateCsp = baseHeaders['Content-Security-Policy'].replace("connect-src 'none'", "connect-src 'self'");
 const mime = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -60,7 +92,7 @@ function json(res, status, value) {
   res.end(JSON.stringify(value));
 }
 
-async function readJson(req) {
+async function readJson(req, maxBytes = 256 * 1024) {
   if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     throw new RequestError(415, '需要 JSON 请求');
   }
@@ -68,7 +100,7 @@ async function readJson(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 256 * 1024) throw new RequestError(413, '消息过长');
+    if (size > maxBytes) throw new RequestError(413, '消息过长');
     chunks.push(chunk);
   }
   let data;
@@ -92,15 +124,35 @@ function historyOptions(params) {
 
 async function api(req, res, url) {
   if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
-    '/app/provider-cache'].includes(url.pathname)) {
+    '/app/routes', '/app/provider-cache'].includes(url.pathname)) {
     throw new RequestError(404, '试验线路只开放聊天');
   }
   const origin = req.headers.origin;
   if ((origin && origin !== url.origin) || req.headers['sec-fetch-site'] === 'cross-site') {
     throw new RequestError(403, '此操作仅在本机小屋可用');
   }
+  if (live && req.method === 'POST' && origin !== url.origin) {
+    throw new RequestError(403, '请从本机小屋内操作。');
+  }
+  if (url.pathname === '/app/routes') {
+    if (req.method === 'GET') {
+      const thread = url.searchParams.get('thread') ?? 'window';
+      if (live) return json(res, 200, live.status(store, thread));
+      return json(res, 200, { thread, model: store.windowModel(thread), route: 'mock', endpoint: null, hasKey: false,
+        routes: [{ id: 'mock', label: providerMode ? '合成 API' : '本机模拟', models: storeOptions.models ?? mockModels }] });
+    }
+    if (live && req.method === 'POST') return json(res, 200, live.select(store, await readJson(req, 8192)));
+    throw new RequestError(405, '请求方法有误');
+  }
   if (url.pathname === '/app/history' && req.method === 'GET') {
-    return json(res, 200, await store.history(historyOptions(url.searchParams)));
+    const history = await store.history(historyOptions(url.searchParams));
+    if (live) {
+      const route = live.active(history.model);
+      history.route = route.id;
+      history.models = route.models;
+      history.cacheCapabilities.windowKey = route.id === 'gemini';
+    }
+    return json(res, 200, history);
   }
   if (url.pathname === '/app/windows' && req.method === 'GET') return json(res, 200, store.listWindows());
   if (url.pathname === '/app/provider-cache' && req.method === 'GET') return json(res, 200, { defaultWindowKey: store.defaultWindowKey() });
@@ -122,7 +174,17 @@ async function api(req, res, url) {
   const action = handlers.get(url.pathname);
   if (!action) throw new RequestError(404, '接口不存在');
   if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
-  return json(res, 200, await action(await readJson(req)));
+  const input = await readJson(req);
+  if (live && ['/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {
+    const route = live.active(store.windowModel(input.thread));
+    if (input.model != null && !route.models.includes(input.model)) {
+      throw new RequestError(409, '本窗口的线路已经改变，请重新打开聊天框。');
+    }
+    if (route.id === 'gemini' && !live.status(store, input.thread).hasKey) {
+      throw new RequestError(409, '请在杂物间为 Gemini 填写线路密钥。');
+    }
+  }
+  return json(res, 200, await action(input));
 }
 
 function asset(req, res, url) {
@@ -133,15 +195,16 @@ function asset(req, res, url) {
   if (/[\\:\0]/.test(pathname)) throw new RequestError(404, '找不到页面');
   let file = resolve(dist, '.' + pathname);
   if (!inside(dist, file)) throw new RequestError(404, '找不到页面');
-  if (['/chat', '/diary', '/living', '/living/pocket'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
+  if (['/chat', '/diary', '/living', '/living/pocket', '/other'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
   if (!existsSync(file) || !inside(realpathSync(dist), realpathSync(file)) || !statSync(file).isFile()) {
     throw new RequestError(404, '找不到页面');
   }
   const ext = extname(file);
   res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
-  if (file === resolve(dist, 'chat/index.html') || (!labMode && file === resolve(dist, 'living/pocket/index.html'))) {
+  if (file === resolve(dist, 'chat/index.html') || file === resolve(dist, 'other/index.html') ||
+      (!labMode && file === resolve(dist, 'living/pocket/index.html'))) {
     res.setHeader('Content-Security-Policy', privateCsp);
-    const mode = 'data-chat-store="gateway" ' + (memoryMode ? 'data-memory-lab ' : providerMode ? 'data-provider-lab ' : '');
+    const mode = 'data-chat-store="gateway" ' + (liveMode ? 'data-live-lab ' : memoryMode ? 'data-memory-lab ' : providerMode ? 'data-provider-lab ' : '');
     const html = readFileSync(file, 'utf8').replace('<html ', '<html ' + mode);
     res.end(req.method === 'HEAD' ? undefined : html);
     return;
@@ -201,5 +264,6 @@ if (fixture) {
   process.once('SIGTERM', () => server.close());
 }
 server.listen(port, '127.0.0.1', () => {
-  console.log((providerMode ? 'Haven provider lab' : memoryMode ? 'Haven memory lab' : 'Haven local mock') + ': http://127.0.0.1:' + server.address().port + '/chat/');
+  const title = liveMode ? 'Haven Gemini chat' : providerMode ? 'Haven provider lab' : memoryMode ? 'Haven memory lab' : 'Haven local mock';
+  console.log(title + ': http://127.0.0.1:' + server.address().port + (liveMode ? '/other/' : '/chat/'));
 });
