@@ -28,6 +28,7 @@ async function perform(progress, work) {
   if (busy) return;
   busy = true;
   $('route-fields').disabled = $('provider-fields').disabled = $('new-provider').disabled = true;
+  $('chat-memory-source').disabled = true;
   status(progress);
   try { await work(); }
   catch (error) { status(error.notice || '线路未能更新，请核对连接并重试。', true); }
@@ -35,6 +36,7 @@ async function perform(progress, work) {
     busy = false;
     $('route-fields').disabled = !state;
     $('provider-fields').disabled = $('new-provider').disabled = false;
+    $('chat-memory-source').disabled = false;
   }
 }
 
@@ -53,6 +55,9 @@ function showProvider(preferredModel) {
     model.value = selected;
   }
   const remote = live && route.id !== 'mock';
+  $('chat-memory-setting').hidden = !remote || !route.memorySource;
+  $('chat-memory-source').value = route.memorySource ?? 'synthetic';
+  $('chat-memory-source').querySelector('[value="personal"]').disabled = !route.personalMemoryAvailable;
   const hasKey = route.hasKey ?? state.hasKey;
   const keyStorage = route.keyStorage ?? state.keyStorage;
   $('refresh-models').hidden = !remote || route.catalogReady === undefined;
@@ -122,6 +127,16 @@ provider.onchange = () => {
   initialDiscovery();
 };
 $('refresh-models').onclick = () => refreshModels();
+$('chat-memory-source').onchange = () => {
+  const route = selectedRoute();
+  const source = $('chat-memory-source').value;
+  const selected = model.value;
+  perform('正在切换记忆库…', async () => {
+    $('chat-memory-source').value = route.memorySource;
+    render(await chatService.setMemorySource(route.id, source), route.id, selected);
+    status('记忆库设置已应用到这条线路的所有 Gemini 窗口。');
+  });
+};
 $('forget-key').onclick = async () => {
   const route = selectedRoute();
   const preferred = model.value;

@@ -1,73 +1,11 @@
-import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { once } from 'node:events';
-import { createInterface } from 'node:readline';
-import { promisify } from 'node:util';
+import { searchConnectedOmbre } from './ombre-search.mjs';
 
-const exec = promisify(execFile);
-const serverName = 'aru-memory';
 export const anniversaryQuestion = '阿川，我们的纪念日是哪一天？';
 const keywords = ['纪念日', '确认恋爱关系'];
 
-// Use the user's existing OAuth client. Neither the MCP credentials nor the
-// private bucket report are available to the browser or to the chat model.
-async function searchConnectedMemory(dashboardOrigin, query, allowed) {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('HAVEN_')));
-  const [{ stdout }, metadata] = await Promise.all([
-    exec('codex', ['mcp', 'get', serverName, '--json'], { env, windowsHide: true, timeout: 12000 }),
-    fetch(new URL('/.well-known/oauth-protected-resource', dashboardOrigin), {
-      redirect: 'error', signal: AbortSignal.timeout(5000)
-    }).then(response => { if (!response.ok) throw Error('Ombre discovery failed'); return response.json(); })
-  ]);
-  const configured = JSON.parse(stdout);
-  if (!configured.enabled || configured.transport?.type !== 'streamable_http' ||
-      !metadata.resource?.startsWith('https://') || configured.transport.url !== metadata.resource) {
-    throw Error('The authorized MCP client does not match this room’s Ombre.');
-  }
-  const child = spawn('codex', ['app-server', '--stdio'], {
-    windowsHide: true, env, stdio: ['pipe', 'pipe', 'ignore'], timeout: 90000
-  });
-  const lines = createInterface({ input: child.stdout });
-  const input = lines[Symbol.asyncIterator]();
-  let sequence = 0;
-  child.stdin.on('error', () => {});
-  const send = frame => child.stdin.write(JSON.stringify(frame) + '\n');
-  async function request(method, params) {
-    const id = ++sequence;
-    send({ id, method, params });
-    for (;;) {
-      const { value, done } = await input.next();
-      if (done) throw Error('MCP client disconnected');
-      const frame = JSON.parse(value);
-      if (frame.method && frame.id != null) throw Error('The MCP client requires user interaction');
-      if (frame.id !== id) continue;
-      if (frame.error) throw Error('MCP client request failed');
-      return frame.result;
-    }
-  }
-  try {
-    await once(child, 'spawn');
-    await request('initialize', { clientInfo: { name: 'haven_memory_trial', version: '1' }, capabilities: { experimentalApi: true } });
-    send({ method: 'initialized' });
-    // An ephemeral MCP session makes no model turn and creates no saved Codex chat.
-    const { thread } = await request('thread/start', { ephemeral: true, sandbox: 'read-only', cwd: process.cwd() });
-    const status = await request('mcpServerStatus/list', { threadId: thread.id, serverName, detail: 'toolsAndAuthOnly' });
-    if (!status.data?.some(s => s.name === serverName && s.tools?.breath_search)) throw Error('Search unavailable');
-    for (const term of new Set([query, ...keywords])) {
-      const result = await request('mcpServer/tool/call', { threadId: thread.id, server: serverName, tool: 'breath_search',
-        arguments: { query: term, max_results: 8 } });
-      if (result.isError) throw Error('Ombre search failed');
-      const text = result.structuredContent?.result ?? result.content?.find(b => b.type === 'text')?.text;
-      if (typeof text !== 'string' || !text.trim()) throw Error('Missing Ombre receipt');
-      const hit = approvedExcerpt(text, allowed);
-      if (hit) return term === query ? hit : { ...hit, matchedQuery: term };
-    }
-    return null;
-  } finally {
-    lines.close();
-    child.stdin.end();
-    child.kill();
-  }
+function searchConnectedMemory(dashboardOrigin, query, allowed) {
+  return searchConnectedOmbre(dashboardOrigin, [query, ...keywords], raw => approvedExcerpt(raw, allowed));
 }
 
 // A local selection contains only an ID, length and digest. The characters

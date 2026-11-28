@@ -57,6 +57,14 @@
           </div>
         </fieldset>
       </form>
+      <div id="chat-memory-setting" hidden>
+        <label for="chat-memory-source">这条线路所有 Gemini 窗口的记忆库</label>
+        <select id="chat-memory-source" aria-describedby="chat-memory-hint">
+          <option value="synthetic">Ombre 隔离测试库</option>
+          <option value="personal">Ombre 真实库</option>
+        </select>
+        <p id="chat-memory-hint" class="route-hint">切换立即生效。使用真实库时，新窗口首次回复前最多接收一段浮现记忆，之后阿川可按需查找。每次只向这条线路提供一条记忆的编号和原文摘录。</p>
+      </div>
       <div id="provider-tools" hidden>
         <button id="new-provider" type="button" aria-expanded="false" aria-controls="provider-form">＋ 新建供应商</button>
         <form id="provider-form" autocomplete="off" hidden>

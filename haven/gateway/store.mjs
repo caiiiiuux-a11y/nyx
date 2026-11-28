@@ -93,6 +93,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     );
   `);
   const defaultRoute = modelsForRoute ? 'mock' : null;
+  if (modelsForRoute) db.exec(`CREATE TABLE IF NOT EXISTS opening_memory_receipts (
+    thread TEXT PRIMARY KEY, turn_id INTEGER NOT NULL, route TEXT NOT NULL, receipt TEXT
+  )`);
   const availableModels = route => modelsForRoute ? modelsForRoute(route) : models;
   const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute });
   transaction(() => {
@@ -197,6 +200,28 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     return archiveIndex.search({ query: query.trim(), limit, thread, beforeId });
   }
 
+  async function openingMemory(turn, route, regenerating, surface) {
+    const saved = db.prepare('SELECT * FROM opening_memory_receipts WHERE thread=?').get(turn.thread);
+    const base = { name: 'breath', scope: 'personal' };
+    if (saved) {
+      if (saved.turn_id !== turn.id || saved.route !== route) return null;
+      return saved.receipt ? JSON.parse(saved.receipt) : { ...base, status: 'uncertain' };
+    }
+    if (regenerating || turn.route !== route) return null;
+    const claimed = db.prepare(`INSERT OR IGNORE INTO opening_memory_receipts(thread,turn_id,route)
+      SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM turns WHERE thread=? AND id<?)`)
+      .run(turn.thread, turn.id, route, turn.thread, turn.id);
+    if (!claimed.changes) return null;
+    let receipt;
+    try {
+      const hit = await surface();
+      receipt = hit ? { ...base, status: 'ok', bucketId: hit.bucketId, excerpt: hit.excerpt } : { ...base, status: 'empty' };
+    } catch { receipt = { ...base, status: 'error' }; }
+    db.prepare('UPDATE opening_memory_receipts SET receipt=? WHERE thread=? AND turn_id=?')
+      .run(JSON.stringify(receipt), turn.thread, turn.id);
+    return receipt;
+  }
+
   async function makeAnswer(turn, model, onText, previousAnswer, prefs = { contextBudget: turn.context_budget, cacheMode: turn.cache_mode }) {
     const thread = turn.thread;
     const route = modelsForRoute ? prefs.route ?? turn.route : null;
@@ -236,6 +261,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     }
     if (modelsForRoute) request.route = prefs.route ?? turn.route;
     const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text, onText };
+    if (modelsForRoute) options.openingMemory = surface => openingMemory(turn, route, options.regenerating, surface);
     let result;
     let usage;
     let memoryTool;
@@ -282,6 +308,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         ...(result.reportedModel && { reportedModel: result.reportedModel }),
         usage,
         ...(memoryTool && { memoryTool }),
+        ...(result.openingMemory && { openingMemory: result.openingMemory }),
         ...(memorySources?.length && { sourceRefs: memorySources }),
         ...(archiveHits?.length && { archiveMode: archive.mode, automaticRecall: Boolean(archive.automatic) }),
         ...(archiveHits?.length && { sourceRefs: archiveHits.map(({ thread, messageId, start, end, text, from }) => ({

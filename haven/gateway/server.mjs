@@ -67,6 +67,7 @@ if (liveMode) {
   }
   const { createLiveRoutes } = await import('./live-routes.mjs');
   const { searchLiveFixture } = await import('./ombre-lab.mjs');
+  const { createPersonalOmbre } = await import('./ombre-search.mjs');
   let memoryTrial;
   if (values['anniversary-trial']) {
     const { createAnniversaryTrial } = await import('./anniversary-trial.mjs');
@@ -76,6 +77,7 @@ if (liveMode) {
   const { createLocalCredentialStore } = await import('./local-credential-store.mjs');
   live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
     credentialStore: createLocalCredentialStore(dirname(database)), searchMemory: searchLiveFixture, memoryTrial,
+    personalMemory: memoryDashboard && !memoryTrial && values.db === undefined ? createPersonalOmbre(memoryDashboard.origin) : undefined,
     model: process.env.HAVEN_TRIAL_MODEL, profileFile: resolve(dirname(database), 'providers.json') });
   Object.assign(storeOptions, { provider: 'live-lab', models: live.active('mock').models,
     modelsForRoute: route => live.active(route).models,
@@ -202,13 +204,13 @@ async function api(req, res, url) {
     return json(res, 200, result);
   }
   if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
-    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/provider-cache'].includes(url.pathname)) {
+    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/routes/memory', '/app/provider-cache'].includes(url.pathname)) {
     throw new RequestError(404, '接口不存在。');
   }
   if (live && url.pathname.startsWith('/app/routes/')) {
     if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
     const action = { '/app/routes/providers': live.add, '/app/routes/models': live.refresh,
-      '/app/routes/forget-key': live.forgetKey }[url.pathname];
+      '/app/routes/forget-key': live.forgetKey, '/app/routes/memory': live.setMemorySource }[url.pathname];
     if (!action) throw new RequestError(404, '接口不存在');
     return json(res, 200, await action(store, await readJson(req, 8192)));
   }
@@ -230,6 +232,7 @@ async function api(req, res, url) {
       history.hasKey = route.hasKey;
       history.requiresKey = route.requiresKey;
       history.catalogReady = route.catalogReady;
+      history.memoryScope = live.memoryScope(route.id, history.model);
       if (live.isAnniversaryWindow(history.thread, route.id, history.model)) history.anniversaryTrial = true;
     }
     return json(res, 200, history);
@@ -272,7 +275,12 @@ async function api(req, res, url) {
   if (req.headers.accept === 'application/x-ndjson' && ['/app/send', '/app/regenerate'].includes(url.pathname)) {
     return streamChat(res, action, input);
   }
-  return json(res, 200, await action(input));
+  const result = await action(input);
+  if (live && url.pathname === '/app/model') {
+    result.memoryScope = live.memoryScope(result.route, result.model);
+    result.anniversaryTrial = live.isAnniversaryWindow(input.thread, result.route, result.model);
+  }
+  return json(res, 200, result);
 }
 
 function asset(req, res, url) {

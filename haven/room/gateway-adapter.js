@@ -110,6 +110,7 @@ export function createGatewayChat(mediaAssets) {
     routes() { return request('routes?thread=' + encodeURIComponent(active.id)); },
     refreshModels(settings) { return request('routes/models', { ...settings, thread: active.id }); },
     forgetKey(route) { return request('routes/forget-key', { route, thread: active.id }); },
+    setMemorySource(route, source) { return request('routes/memory', { route, source, thread: active.id }); },
     addProvider(settings) { return request('routes/providers', { ...settings, thread: active.id }); },
     async selectRoute(settings) {
       const thread = active.id;
@@ -143,6 +144,7 @@ export function createGatewayChat(mediaAssets) {
       const thread = active.id;
       const result = await request('model', { thread, route: routeByThread.get(thread), model: value });
       modelByThread.set(thread, result.model);
+      return result;
     },
     async send(text, media, quote, onText) {
       const result = await submit('send', { text, media, quote }, undefined, onText);

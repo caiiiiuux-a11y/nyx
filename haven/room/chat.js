@@ -248,31 +248,34 @@ function usageButton(m) {
   button.setAttribute('aria-expanded', 'false');
   return button;
 }
-function showMemoryDetails(anchor, tool, refs, archiveMode) {
+function appendMemoryReceipt(content, tool) {
+  const action = { hold: '写入', breath: '开窗浮现', breath_search: '查找', dream: '做梦' }[tool.name];
+  const status = { ok: '已收到回执', empty: tool.name === 'breath' ? '没有浮现的记忆' : '没有匹配的记忆',
+    error: '未完成', uncertain: '结果待核对', budget: '本轮预算不足，未附摘录' }[tool.status];
+  const origin = { synthetic: 'Ombre 隔离库', personal: 'Ombre 真实库' }[tool.scope] || 'Ombre';
+  content.append(element('p', 'receipt-status', [origin, action, status].filter(Boolean).join(' · ')));
+  if (tool.query) content.append(element('p', 'receipt-caption', '查询词「' + tool.query + '」'));
+  if (tool.domain) content.append(element('p', 'receipt-caption', '主题域「' + tool.domain + '」'));
+  if (tool.matchedQuery) content.append(element('p', 'receipt-caption', '命中词「' + tool.matchedQuery + '」'));
+  if (tool.archived || tool.semantic) content.append(element('p', 'receipt-caption', tool.archived ? '归档的历史记录' : '语义关联'));
+  if (tool.excerpt) content.append(element('p', 'receipt-caption', '记忆库摘录'), element('blockquote', '', tool.excerpt));
+  if (tool.bucketId) content.append(element('p', 'receipt-id', '记忆编号 ' + tool.bucketId));
+}
+function showMemoryDetails(anchor, tool, refs, archiveMode, opening) {
   $('memory-title').textContent = anchor.getAttribute('aria-label');
   const content = $('memory-content');
   content.replaceChildren();
-  if (tool) {
-    const action = { hold: '写入', breath_search: '查找', dream: '做梦' }[tool.name];
-    const status = { ok: '已收到回执', empty: '没有匹配的记忆', error: '未完成', uncertain: '结果待核对' }[tool.status];
-    const origin = { synthetic: 'Ombre 隔离库', personal: 'Ombre 真实库' }[tool.scope] || 'Ombre';
-    content.append(element('p', 'receipt-status', [origin, action, status].filter(Boolean).join(' · ')));
-    if (tool.query) content.append(element('p', 'receipt-caption', '查询词「' + tool.query + '」'));
-    if (tool.matchedQuery) content.append(element('p', 'receipt-caption', '命中词「' + tool.matchedQuery + '」'));
-  }
+  if (opening) appendMemoryReceipt(content, opening);
+  if (tool) appendMemoryReceipt(content, tool);
   if (archiveMode === 'hybrid' || archiveMode === 'lexical') {
     const method = archiveMode === 'hybrid' ? '语义和文字匹配' : '文字匹配';
     content.append(element('p', 'receipt-caption', '聊天原文 · ' + method));
-  } else if (refs.length && tool) content.append(element('p', 'receipt-caption', '原话摘录'));
+  } else if (refs.length && (tool || opening)) content.append(element('p', 'receipt-caption', '原话摘录'));
   for (const ref of refs) {
     const characters = Array.from(ref.excerpt.trim());
     const text = characters.length > 96 ? characters.slice(0, 96).join('') + '…' : characters.join('');
     content.append(element('blockquote', '', text));
   }
-  if (tool?.excerpt) {
-    content.append(element('p', 'receipt-caption', '记忆库摘录'), element('blockquote', '', tool.excerpt));
-  }
-  if (tool?.bucketId) content.append(element('p', 'receipt-id', '记忆编号 ' + tool.bucketId));
   openPanel($('memory-details'), anchor);
 }
 function showChoices(title, items, anchor) {
@@ -491,10 +494,11 @@ function build(m) {
   const byline = element('div', 'msg-byline');
   byline.append(avatarButton(me ? 'iris' : 'adrian'));
   const tool = m.meta.memoryTool;
+  const opening = m.meta.openingMemory;
   const refs = (m.meta.sourceRefs || []).filter(ref => typeof ref.excerpt === 'string' && ref.excerpt.trim());
-  if (tool || refs.length) {
-    const trigger = control(tool ? '这次用到的记忆' : '原话摘录',
-      event => showMemoryDetails(event.currentTarget, tool, refs, m.meta.archiveMode), 'more');
+  if (tool || opening || refs.length) {
+    const trigger = control(tool || opening ? '这次用到的记忆' : '原话摘录',
+      event => showMemoryDetails(event.currentTarget, tool, refs, m.meta.archiveMode, opening), 'more');
     trigger.className = 'memory-trigger';
     trigger.setAttribute('aria-haspopup', 'dialog');
     trigger.setAttribute('aria-expanded', 'false');
@@ -760,6 +764,29 @@ say.onkeydown = ev => {
     if (say.value.trim() || media) send();
   }
 };
+function liveEmptyMessage() {
+  if (room.anniversaryTrial) return '这个窗口可以核对你们的纪念日。';
+  return room.memoryScope === 'personal' ? '跟阿川说句话吧。' : '写下一个虚构的小故事，下一轮可以接着聊。';
+}
+function showLiveMemoryScope() {
+  const label = room.anniversaryTrial ? '纪念日试聊' : room.memoryScope === 'personal' ? 'Ombre 真实库' :
+    room.memoryScope === 'synthetic' ? 'Ombre 隔离库' : '本机试聊';
+  document.querySelector('.chat-date').textContent = (room.routeLabel || room.model) + ' · ' + label;
+  log.setAttribute('aria-label', '与 Adrian 的对话 · ' + label);
+  say.placeholder = room.anniversaryTrial ? '问问阿川我们的纪念日…' :
+    room.memoryScope === 'synthetic' ? '写一句合成测试消息…' : '写给 Adrian…';
+  const empty = log.querySelector('.chat-empty');
+  if (empty) empty.textContent = liveEmptyMessage();
+}
+if (liveLab) document.addEventListener('visibilitychange', async () => {
+  const target = room;
+  if (document.hidden || !target) return;
+  const current = await chatService.routes().catch(() => null);
+  if (!current || room !== target || current.thread !== target.thread || current.route !== target.route || current.model !== target.model) return;
+  target.memoryScope = current.memoryScope;
+  target.anniversaryTrial = current.anniversaryTrial;
+  showLiveMemoryScope();
+});
 async function loadRoom({ select, create = false, locateNote = false } = {}) {
   if (busy) return;
   saveDraft();
@@ -784,11 +811,7 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
     if (memoryLab) {
       if (!document.querySelector('.memory-lab-guide')) await showMemoryLab();
     } else if (liveLab) {
-      const hasPersonalReceipt = room.messages.some(m => m.meta?.memoryTool?.scope === 'personal');
-      const label = room.anniversaryTrial ? '纪念日试聊' : hasPersonalReceipt ? '纪念日试聊记录' : '合成试聊';
-      document.querySelector('.chat-date').textContent = (room.routeLabel || (room.route === 'mock' ? '本地模拟' : room.model)) + ' · ' + label;
-      log.setAttribute('aria-label', '与 Adrian 的' + label);
-      say.placeholder = room.anniversaryTrial ? '问问阿川我们的纪念日…' : '写一句合成测试消息…';
+      showLiveMemoryScope();
     } else if (providerLab) {
       document.querySelector('.chat-date').textContent = 'Gateway · 旧家园合成 API';
       say.placeholder = '写一句合成测试消息…';
@@ -800,7 +823,7 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
     log.replaceChildren();
     for (const message of room.messages) log.append(build(message));
     if (!room.messages.length) log.append(element('p', 'chat-empty',
-      room.anniversaryTrial ? '这个窗口可以核对你们的纪念日。' : liveLab ? '写下一个虚构的小故事，下一轮可以接着聊。' :
+      liveLab ? liveEmptyMessage() :
         memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : providerLab
         ? '发一句测试消息，再问「Winterfern 灯塔的标记是什么？」'
         : '写给 Adrian…'));
@@ -870,8 +893,9 @@ async function refreshChatModels() {
 
 function changeModel(value) {
   return writeChat(async () => {
-    await chatService.selectModel(value);
+    const selected = await chatService.selectModel(value);
     room.model = value;
+    if (liveLab) { Object.assign(room, selected); showLiveMemoryScope(); }
   }, '模型的选择尚未确认。', () => changeModel(value), { preserveIssue: true });
 }
 picker.onchange = () => {

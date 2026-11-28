@@ -15,7 +15,8 @@ function isRecallQuestion(text) {
 // Rank factual material ahead of repeats of the question or an older non-answer.
 function hasEvidence(message) {
   if (message.from === 'ai' && /(?:不(?:知道|记得|清楚|确定)|无法.{0,8}(?:确认|确定|查|知道|读取|访问)|没(?:有)?[^。！？!?\n]{0,24}(?:看到|找到|提过|提到|查到|记录|足够)|(?:上下文|记录).{0,10}(?:没有|未)|don't (?:know|remember|have access)|can't (?:find|recall))/iu.test(message.text)) return false;
-  if (message.from === 'ai' && (message.meta?.sourceRefs?.length || message.meta?.memoryTool?.bucketId)) return false;
+  const opening = message.meta?.openingMemory?.excerpt;
+  if (message.from === 'ai' && (message.meta?.sourceRefs?.length || message.meta?.memoryTool?.bucketId || (opening && message.text.includes(opening)))) return false;
   return (message.text.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? []).some(part => {
     const clause = part.trim();
     return clause.length > 1 && !/[?？]$/.test(clause) &&
