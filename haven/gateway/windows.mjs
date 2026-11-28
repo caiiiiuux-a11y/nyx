@@ -10,7 +10,7 @@ function draftTitle(draft) {
   return [...text].slice(0, 30).join('') || (draft.media ? '附件对话' : emptyTitle);
 }
 
-export function createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute }) {
+export function createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute, enableCalendar }) {
   transaction(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS chat_windows (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
@@ -60,6 +60,13 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
       .all(thread, before, ...(route ? [route, route] : []), contextBudget === 0 ? -1 : RECENT_TURN_LIMIT)
       .reverse().flatMap(messagesFromTurn);
   }
+  function insert(title, model, route, requestId = null) {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO chat_windows(id,title,created,updated,model,request_id,route) VALUES(?,?,?,?,?,?,?)')
+      .run(id, title, now, now, model, requestId, route);
+    return id;
+  }
   function create({ requestId = null, sourceThread } = {}) {
     if (requestId !== null && (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId))) {
       throw new RequestError(400, '新窗口请求编号无效');
@@ -70,10 +77,7 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
         const existing = db.prepare('SELECT id FROM chat_windows WHERE request_id=?').get(requestId);
         if (existing) return { window: get(existing.id) };
       }
-      const id = randomUUID();
-      const now = new Date().toISOString();
-      db.prepare('INSERT INTO chat_windows(id,title,created,updated,model,request_id,route) VALUES(?,?,?,?,?,?,?)')
-        .run(id, emptyTitle, now, now, source?.model ?? models[0], requestId, source?.route ?? defaultRoute);
+      const id = insert(emptyTitle, source?.model ?? models[0], source?.route ?? defaultRoute, requestId);
       return { window: get(id) };
     });
   }
@@ -122,7 +126,7 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
   function recordTurn(window, draft, now) {
     const first = !db.prepare('SELECT 1 FROM turns WHERE thread=? LIMIT 1').get(window.id);
     db.prepare('UPDATE chat_windows SET updated=?,title=? WHERE id=?')
-      .run(now, first ? draftTitle(draft) : window.title, window.id);
+      .run(now, first && window.title === emptyTitle ? draftTitle(draft) : window.title, window.id);
   }
   function recordAnswer(thread, turnId) {
     db.prepare('UPDATE chat_windows SET updated=?,last_answer_id=? WHERE id=?').run(new Date().toISOString(), turnId, thread);
@@ -133,7 +137,8 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
     return latest ? JSON.parse(latest.answer).meta?.usage ?? null : null;
   }
   return {
-    get, create, recent, configure, recordTurn, recordAnswer, latestUsage, defaultWindowKey, setDefaultWindowKey, requestCacheMode,
-    list: () => ({ windows: db.prepare('SELECT ' + fields + ' FROM chat_windows ORDER BY updated DESC,rowid DESC').all() })
+    get, create, insert, recent, configure, recordTurn, recordAnswer, latestUsage, defaultWindowKey, setDefaultWindowKey, requestCacheMode,
+    list: () => ({ windows: db.prepare('SELECT ' + fields + ' FROM chat_windows' +
+      (enableCalendar ? ' WHERE id NOT IN (SELECT thread FROM calendar_windows)' : '') + ' ORDER BY updated DESC,rowid DESC').all() })
   };
 }

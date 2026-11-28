@@ -1,18 +1,27 @@
 import { dateKey, readNote, writeNote } from './calendar-store.js';
+import { createDiaryPage } from './diary-page.js';
 
 const byId = id => document.getElementById(id);
-const monthName = new Intl.DateTimeFormat('en', { month: 'long' });
-const weekName = new Intl.DateTimeFormat('en', { weekday: 'long' });
+const monthName = new Intl.DateTimeFormat('en', { month: 'short' });
+const weekName = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' });
 const label = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 const requested = new URLSearchParams(location.search).get('date') || '';
 const parsed = new Date(requested + 'T12:00:00');
 let selected = /^\d{4}-\d\d-\d\d$/.test(requested) && dateKey(parsed) === requested ? parsed : new Date();
 let entry = readNote(selected);
 let unsaved = false;
+let detail = new URLSearchParams(location.search).get('view') === 'day';
 const notes = document.querySelectorAll('[data-note-field]');
+const stickers = {
+  meals: ['餐食', 'blue-rim-teacup.webp'], period: ['经期', 'pin-rabbit.png'],
+  note: ['便签或待办', 'mini-blue-book.webp'], star: ['页边留言', 'paper-star.webp']
+};
+const page = createDiaryPage(paintCalendar);
+let filter = null;
 
 function paintNote(note) {
   const text = entry[note.dataset.noteField];
+  note.classList.toggle('blank-memo', !text.trim());
   note.querySelector('.memo-preview').textContent = text.trim() || '写一张便签…';
   const field = note.querySelector('textarea');
   if (field.value !== text) field.value = text;
@@ -29,17 +38,33 @@ function persist(change) {
     unsaved = true;
     byId('save-status').textContent = '本机未能保存，请先保留这一页。';
   }
-  updateDayCell(byId('diary-days').querySelector('[aria-pressed="true"]'), entry);
+  paintCalendar();
 }
 
-function updateDayCell(button, record) {
-  const preview = record.tasks.find(task => !task.done)?.text || record.memo || record.adrianMemo || record.tasks[0]?.text || '';
-  button.lastElementChild.textContent = preview;
+function decorate(cell, date, record) {
+  const flags = { ...page.marks(dateKey(date)) };
+  flags.note ||= Boolean(record.memo || record.adrianMemo || record.tasks.length);
+  const names = [], marks = document.createElement('span');
+  marks.className = 'marks';
+  for (const [kind, [name, file]] of Object.entries(stickers)) {
+    if (!flags[kind]) continue;
+    names.push(name);
+    if (kind === 'period') continue; // The date itself is the rabbit stamp.
+    const icon = document.createElement('img');
+    icon.src = '/room/assets/' + file; icon.alt = '';
+    marks.append(icon);
+  }
+  cell.classList.toggle('has-record', names.length > 0);
+  cell.classList.toggle('period-day', Boolean(flags.period));
+  cell.classList.toggle('dim', Boolean(filter && !flags[filter]));
+  cell.classList.toggle('weekend', [0, 6].includes(date.getDay()));
+  cell.setAttribute('aria-label', [label.format(date), ...names].join('，'));
+  cell.append(marks);
 }
 
 function paintCalendar() {
   const y = selected.getFullYear(), m = selected.getMonth();
-  const first = new Date(y, m, 1).getDay();
+  const first = (new Date(y, m, 1).getDay() + 6) % 7;
   const last = new Date(y, m + 1, 0).getDate();
   const days = document.createDocumentFragment();
   byId('month-name').textContent = monthName.format(selected);
@@ -52,13 +77,18 @@ function paintCalendar() {
     cell.dataset.day = d;
     if (d === 1) cell.style.gridColumnStart = first + 1;
     const number = document.createElement('span');
-    number.textContent = d;
-    const preview = document.createElement('small');
-    cell.append(number, preview);
-    cell.setAttribute('aria-label', label.format(date));
+    number.className = 'stamp';
+    const shape = document.createElement('span');
+    shape.className = 'stamp-shape';
+    shape.setAttribute('aria-hidden', 'true');
+    const digits = document.createElement('span');
+    digits.className = 'digits';
+    digits.textContent = d;
+    number.append(shape, digits);
+    cell.append(number);
     cell.setAttribute('aria-pressed', String(d === selected.getDate()));
     if (dateKey(date) === dateKey(new Date())) cell.setAttribute('aria-current', 'date');
-    updateDayCell(cell, d === selected.getDate() ? entry : readNote(date));
+    decorate(cell, date, d === selected.getDate() ? entry : readNote(date));
     days.append(cell);
   }
   byId('diary-days').replaceChildren(days);
@@ -95,26 +125,49 @@ function paintTasks() {
 
 function paintDay() {
   paintCalendar();
-  byId('day-heading').textContent = (selected.getMonth() + 1) + '月' + selected.getDate() + '日';
-  byId('day-week').textContent = weekName.format(selected);
+  byId('day-heading').textContent = dateKey(selected).slice(5).replace('-', '.');
+  byId('open-detail').textContent = '翻到 ' + byId('day-heading').textContent + ' 的明细　›';
+  byId('day-week').textContent = weekName.format(selected) + (dateKey(selected) === dateKey(new Date()) ? ' · 今天' : '');
   for (const note of notes) paintNote(note);
   paintTasks();
 }
 
-function selectDay(date) {
+function selectDay(date, open = detail, mode = 'replace') {
   if (unsaved) {
     persist(() => {});
     if (unsaved) return;
   }
   selected = date;
+  detail = open;
   entry = readNote(selected);
   const url = new URL(location.href);
   url.searchParams.set('date', dateKey(date));
-  history.replaceState(null, '', url);
+  if (open) url.searchParams.set('view', 'day');
+  else { url.searchParams.delete('view'); url.hash = ''; }
+  if (mode === 'push') history.pushState({ fromMonth: true }, '', url);
+  else if (mode === 'replace') history.replaceState(history.state, '', url);
+  byId('month-page').hidden = open;
+  byId('detail-page').hidden = !open;
+  document.querySelector('a.back-home').hidden = open;
+  byId('back-month').hidden = !open;
+  byId('sheet-title').textContent = open ? '当日明细' : '日历手账';
   byId('new-task').value = '';
   byId('save-status').textContent = '';
   for (const note of notes) note.open = false;
+  if (open && url.hash === '#signed-notes') document.querySelector('.adrian-note').open = true;
+  page.select(dateKey(date), open);
   paintDay();
+}
+
+function openDetails(date) {
+  if (!detail) {
+    const url = new URL(location.href);
+    url.searchParams.set('date', dateKey(date));
+    history.replaceState(null, '', url);
+  }
+  selectDay(date, true, detail ? 'replace' : 'push');
+  window.scrollTo(0, 0);
+  byId('day-heading').focus({ preventScroll: true });
 }
 
 function changeMonth(offset) {
@@ -125,12 +178,28 @@ function changeMonth(offset) {
 
 byId('previous').onclick = () => changeMonth(-1);
 byId('next').onclick = () => changeMonth(1);
-byId('today').onclick = () => selectDay(new Date());
+byId('today').onclick = () => openDetails(new Date());
+byId('open-detail').onclick = () => openDetails(selected);
+byId('back-month').onclick = () => {
+  if (history.state?.fromMonth) history.back();
+  else { selectDay(selected, false); window.scrollTo(0, 0); byId('open-detail').focus({ preventScroll: true }); }
+};
+window.addEventListener('popstate', () => {
+  const params = new URLSearchParams(location.search);
+  const next = new Date(params.get('date') + 'T12:00:00');
+  selectDay(dateKey(next) === params.get('date') ? next : new Date(), params.get('view') === 'day', null);
+  window.scrollTo(0, 0);
+  (detail ? byId('day-heading') : byId('diary-days').querySelector('[aria-pressed="true"]'))?.focus({ preventScroll: true });
+});
+for (const button of document.querySelectorAll('.legend button')) button.onclick = () => {
+  filter = filter === button.dataset.kind ? null : button.dataset.kind;
+  for (const item of document.querySelectorAll('.legend button')) item.setAttribute('aria-pressed', String(filter === item.dataset.kind));
+  paintCalendar();
+};
 byId('diary-days').onclick = event => {
   const cell = event.target.closest('button[data-day]');
   if (!cell) return;
-  selectDay(new Date(selected.getFullYear(), selected.getMonth(), Number(cell.dataset.day)));
-  if (event.detail === 0) byId('diary-days').querySelector('[aria-pressed="true"]').focus();
+  openDetails(new Date(selected.getFullYear(), selected.getMonth(), Number(cell.dataset.day)));
 };
 for (const note of notes) {
   note.querySelector('textarea').oninput = event => {
@@ -152,4 +221,4 @@ window.addEventListener('storage', event => {
   entry = readNote(selected);
   paintDay();
 });
-paintDay();
+selectDay(selected, detail);

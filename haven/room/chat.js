@@ -249,6 +249,24 @@ function usageButton(m) {
   return button;
 }
 function appendMemoryReceipt(content, tool, opening = false) {
+  if (tool.scope === 'calendar') {
+    if (tool.name === 'calendar_reply' || tool.name === 'calendar_note') {
+      const action = tool.name === 'calendar_note' ? '已留下署名便签' : '已贴纸星';
+      content.append(element('p', 'receipt-status', ['日历手账', tool.date, tool.status === 'ok' ? action : '留言待核对'].filter(Boolean).join(' · ')));
+      if (tool.output) content.append(element('blockquote', '', tool.output));
+      if (tool.status === 'ok' && /^\d{4}-\d{2}-\d{2}$/.test(tool.date)) {
+        const day = element('a', 'receipt-caption', '打开这天的明细 ›');
+        day.href = '/diary/?date=' + tool.date + '&view=day' + (tool.name === 'calendar_note' ? '#signed-notes' : '#star-heading');
+        content.append(day);
+      }
+      return;
+    }
+    const category = { meals: '餐食', period: '经期', notes: '阿川的便签' }[tool.category];
+    const status = { ok: '已读取', empty: '这天还没记', error: '未能读取', uncertain: '结果待核对' }[tool.status];
+    content.append(element('p', 'receipt-status', ['日历手账', tool.date, category, status].filter(Boolean).join(' · ')));
+    if (tool.output) content.append(element('blockquote', '', tool.output));
+    return;
+  }
   const action = opening ? '开窗浮现' : ({ hold: '写入', breath: '主动浮现', breath_search: '查找', dream: '做梦' }[tool.name] || tool.name);
   const status = { ok: '已收到回执', empty: tool.name === 'breath' ? '没有浮现的记忆' : '没有匹配的记忆',
     error: '未完成', uncertain: '结果待核对', budget: '本轮预算不足，未附摘录' }[tool.status];
@@ -502,7 +520,8 @@ function build(m) {
   const opening = m.meta.openingMemory;
   const refs = (m.meta.sourceRefs || []).filter(ref => typeof ref.excerpt === 'string' && ref.excerpt.trim());
   if (tools.length || opening || refs.length) {
-    const trigger = control(tools.length || opening ? '这次用到的记忆' : '原话摘录',
+    const caption = tools.some(tool => tool.scope === 'calendar') ? '这次用到的手账记录' : tools.length || opening ? '这次用到的记忆' : '原话摘录';
+    const trigger = control(caption,
       event => showMemoryDetails(event.currentTarget, tools, refs, m.meta.archiveMode, opening), 'more');
     trigger.className = 'memory-trigger';
     trigger.setAttribute('aria-haspopup', 'dialog');

@@ -29,9 +29,9 @@ function toolCabinet(group, open) {
   cabinet.dataset.source = group.id;
   cabinet.open = open;
   const front = toolElement('summary', '', 'cabinet-front');
-  if (group.id === 'ombre') {
+  if (group.id === 'ombre' || group.id === 'calendar') {
     const key = document.createElement('img');
-    key.src = '/room/assets/brass-key.webp';
+    key.src = group.id === 'calendar' ? '/room/assets/mini-blue-book.webp' : '/room/assets/brass-key.webp';
     key.alt = '';
     key.className = 'cabinet-key';
     front.append(key);

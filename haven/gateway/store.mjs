@@ -7,6 +7,7 @@ import { createEvidenceStore } from './evidence.mjs';
 import { createPocketStore } from './pocket.mjs';
 import { createLabTurns, labModelRequest } from './memory-turn.mjs';
 import { createWindowStore } from './windows.mjs';
+import { createCalendarStore } from './calendar.mjs';
 
 export class RequestError extends Error {
   constructor(status, message) {
@@ -78,7 +79,7 @@ function messagesFromTurn(turn) {
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
 export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels, modelsForRoute,
-  provider = 'mock', supportsWindowKey = false, archiveRecall = true, resumePendingOnRead = true } = {}) {
+  provider = 'mock', supportsWindowKey = false, archiveRecall = true, resumePendingOnRead = true, enableCalendar = false } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA busy_timeout=5000;
@@ -101,7 +102,8 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     PRIMARY KEY(turn_id,route,step)
   )`);
   const availableModels = route => modelsForRoute ? modelsForRoute(route) : models;
-  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute });
+  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute, enableCalendar });
+  const calendar = enableCalendar ? createCalendarStore(db, { transaction, windows, RequestError }) : null;
   transaction(() => {
     const columns = new Set(db.prepare('PRAGMA table_info(regenerations)').all().map(row => row.name));
     if (!columns.has('cache_mode')) db.exec('ALTER TABLE regenerations ADD COLUMN cache_mode TEXT');
@@ -181,6 +183,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     readRelatedMessages(beforeId, excludedThread, route) {
       const through = Math.floor(beforeId / 2);
       let query = 'SELECT * FROM turns WHERE answer IS NOT NULL AND id<=?';
+      if (calendar) query += ' AND thread NOT IN (SELECT thread FROM calendar_windows)';
       const params = [through];
       if (route) {
         query += " AND route=? AND COALESCE(json_extract(answer,'$.meta.route'),json_extract(answer,'$.meta.provider'),route)=?";
@@ -230,6 +233,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     const thread = turn.thread;
     const route = modelsForRoute ? prefs.route ?? turn.route : null;
     const human = humanMessage(turn);
+    const page = calendar?.binding(thread);
     let archive;
     let request;
     if (executeLabTool) {
@@ -253,7 +257,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         archive = query.length > 0 && query.length <= 1000
           ? await searchArchive({ query, thread }, human.id)
           : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
-      } else if (archiveIndex && human.text.trim() && route !== 'mock') {
+      } else if (!page && archiveIndex && human.text.trim() && route !== 'mock') {
         const included = request.messages.length - 2;
         const excludeCurrentThread = prefs.contextBudget === 0;
         const excludeMessageIds = excludeCurrentThread ? [] : prior.slice(prior.length - included).map(message => message.id);
@@ -264,8 +268,11 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       if (archive) request.archive = archive;
     }
     if (modelsForRoute) request.route = prefs.route ?? turn.route;
+    if (page) request.calendarDate = page.day;
     const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text, onText };
     if (modelsForRoute) {
+      if (calendar) options.postCalendar = args => calendar.post(args, { boundDate: page?.day, route, thread, turnId: turn.id });
+      if (calendar) options.writeCalendarNote = args => calendar.note(args, { boundDate: page?.day, route, operation: 'chat:' + turn.id });
       options.openingMemory = surface => openingMemory(turn, route, options.regenerating, surface);
       options.toolJournal = {
         read: () => db.prepare('SELECT name,receipt FROM ombre_tool_receipts WHERE turn_id=? AND route=? ORDER BY step')
@@ -490,12 +497,15 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
   function selectModel(input) {
     const window = windows.get(input.thread);
     const route = modelsForRoute ? (input.route ?? window.route) : null;
+    const page = calendar?.binding(window.id);
+    if (page && page.route !== route) throw new RequestError(409, '页边留言使用这本日历已连接的线路。');
     const model = checkedModel(input.model, availableModels(route));
     db.prepare('UPDATE chat_windows SET model=?,route=? WHERE id=?').run(model, route, window.id);
     return { model, ...(route && { route }) };
   }
   const pocket = createPocketStore(db, RequestError);
   return {
+    calendar,
     pocket: { ...pocket, create(input) {
       if (input.source != null) {
         const source = readMessage(input.source.id);

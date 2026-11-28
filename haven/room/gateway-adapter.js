@@ -32,30 +32,31 @@ async function readChatStream(body, onText) {
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
 
+export async function gatewayRequest(path, payload, onText) {
+  const options = { cache: 'no-store', credentials: 'same-origin' };
+  if (payload) {
+    options.method = 'POST';
+    options.headers = { 'Content-Type': 'application/json' };
+    if (onText) options.headers.Accept = 'application/x-ndjson';
+    options.body = JSON.stringify(payload);
+  }
+  const response = await fetch('/app/' + path, options);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw requestFailure(response.status, body?.error);
+  }
+  if (onText && response.headers.get('Content-Type')?.startsWith('application/x-ndjson')) {
+    return readChatStream(response.body, onText);
+  }
+  return response.json();
+}
+
 export function createGatewayChat(mediaAssets) {
   const active = windowLocation('haven.gateway.last-window.v1');
   const modelByThread = new Map();
   const routeByThread = new Map();
   const unconfirmed = new Map();
-
-  async function request(path, payload, onText) {
-    const options = { cache: 'no-store', credentials: 'same-origin' };
-    if (payload) {
-      options.method = 'POST';
-      options.headers = { 'Content-Type': 'application/json' };
-      if (onText) options.headers.Accept = 'application/x-ndjson';
-      options.body = JSON.stringify(payload);
-    }
-    const response = await fetch('/app/' + path, options);
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw requestFailure(response.status, body?.error);
-    }
-    if (onText && response.headers.get('Content-Type')?.startsWith('application/x-ndjson')) {
-      return readChatStream(response.body, onText);
-    }
-    return response.json();
-  }
+  const request = gatewayRequest;
 
   // On one route a retry has the same identity. Sending the same draft on a
   // different model starts a new request, even if an earlier turn is pending.

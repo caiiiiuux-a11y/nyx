@@ -39,7 +39,7 @@ import { dateKey, readNote } from './calendar-store.js';
       const date = new Date(year, month, day);
       const note = readNote(date);
       const btn = document.createElement('a');
-      btn.href = '/diary/?date=' + dateKey(date);
+      btn.href = '/diary/?date=' + dateKey(date) + '&view=day';
       btn.textContent = day;
       btn.setAttribute('aria-label', sheetLabel.format(date) + '，打开当日日记');
       if (dateKey(date) === clockDay) btn.setAttribute('aria-current', 'date');

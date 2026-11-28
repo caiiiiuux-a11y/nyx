@@ -207,6 +207,7 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allo
     }
     if (definitions.length) payload.tools = definitions;
     if (toolChoice === 'none') payload.tool_choice = 'none';
+    else if (toolChoice && tools.some(tool => tool.name === toolChoice)) payload.tool_choice = { type: 'function', function: { name: toolChoice } };
     if (cacheMode === 'window') payload.prompt_cache_key = 'haven-' + thread;
     usage.windowKeySent = Object.hasOwn(payload, 'prompt_cache_key');
     const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };

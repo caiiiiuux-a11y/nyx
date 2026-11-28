@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#f9f5ef">
-  <title>日记 · Iris &amp; Adrian’s Room</title>
+  <meta name="theme-color" content="#f9e9eb">
+  <title>日历手账 · Iris &amp; Adrian’s Room</title>
   <link rel="icon" href="/room/assets/pin-fawn.png">
   <link rel="stylesheet" href="/room/shared.css">
   <link rel="stylesheet" href="/room/diary.css">
@@ -14,35 +14,68 @@
 <body data-page="diary">
   <main class="diary">
     <header class="diary-top">
-      <a href="/" class="back-home"><span aria-hidden="true">‹</span> 首页</a>
-      <h1>日记</h1>
+      <a href="/" class="back-home"><span aria-hidden="true">‹</span> 小屋</a>
+      <button type="button" id="back-month" class="back-home" aria-label="返回月历" hidden>‹ 月历</button>
+      <h1 id="sheet-title">日历手账</h1>
+      <button type="button" id="today">今天</button>
     </header>
-    <section class="month" aria-label="日历">
+    <div class="spread">
+    <section class="month" id="month-page" aria-label="日历">
       <div class="month-bar">
+        <img class="window-rabbit" src="/room/assets/window-rabbit.webp" alt="">
+        <button type="button" id="previous" aria-label="上个月">‹</button>
         <h2 lang="en"><span id="month-name"></span> <small id="month-year"></small></h2>
-        <div class="month-controls">
-          <button type="button" id="previous" aria-label="上个月">‹</button>
-          <button type="button" id="today">今天</button>
-          <button type="button" id="next" aria-label="下个月">›</button>
-        </div>
+        <button type="button" id="next" aria-label="下个月">›</button>
       </div>
-      <div class="calendar-grid">
+      <div class="calendar-paper">
+        <i class="tape left-tape" aria-hidden="true"></i><i class="tape right-tape" aria-hidden="true"></i>
         <div class="week" aria-hidden="true">
-          <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+          <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
         </div>
         <div id="diary-days" role="group" aria-label="选择日记日期"></div>
+        <div class="legend" aria-label="按贴纸高亮日期">
+          <button type="button" data-kind="meals" aria-pressed="false"><img src="/room/assets/blue-rim-teacup.webp" alt="">餐食</button>
+          <button type="button" data-kind="period" aria-pressed="false"><img src="/room/assets/pin-rabbit.png" alt="">经期</button>
+          <button type="button" data-kind="note" aria-pressed="false"><img src="/room/assets/mini-blue-book.webp" alt="">便签</button>
+          <button type="button" data-kind="star" aria-pressed="false"><img src="/room/assets/paper-star.webp" alt="">纸星</button>
+        </div>
       </div>
+      <p id="month-status" class="status" role="status"></p>
+      <button type="button" id="open-detail" class="turn-page"></button>
     </section>
-    <section class="daily" aria-labelledby="day-heading">
-      <header class="day-heading"><h2 id="day-heading"></h2><span id="day-week" lang="en"></span></header>
-      <section class="task-paper" aria-labelledby="tasks-title">
-        <h3 id="tasks-title">待办</h3>
+    <section class="daily" id="detail-page" aria-labelledby="day-heading" hidden>
+      <header class="day-heading"><div><h2 id="day-heading" tabindex="-1"></h2><span id="day-week"></span></div><img src="/room/assets/mailbox-bird.webp" alt=""></header>
+      <button type="button" id="read-day-notes" class="note-jump" hidden><img src="/room/assets/mini-blue-book.webp" alt=""><span></span>　›</button>
+      <div id="day-summary" class="day-summary"></div>
+      <div class="record-actions">
+        <button type="button" data-editor="meals" aria-expanded="false" aria-controls="record-form" disabled><img src="/room/assets/blue-rim-teacup.webp" alt="">记一餐</button>
+        <button type="button" data-editor="period" aria-expanded="false" aria-controls="record-form" disabled><img src="/room/assets/pin-rabbit.png" alt="">记经期</button>
+      </div>
+      <form id="record-form" class="record-form" hidden>
+        <label id="meal-choice">哪一餐<select id="meal-field"><option value="breakfast">早餐</option><option value="lunch">午餐</option><option value="dinner">晚餐</option><option value="snack">加餐</option></select></label>
+        <label id="meal-entry">吃了什么<textarea id="meal-text" maxlength="500" rows="2" placeholder="写下这一餐…"></textarea></label>
+        <label id="period-choice" hidden>当天的标记<select id="period-value"><option value="">未标记</option><option value="start">开始了</option><option value="ongoing">经期中</option><option value="end">结束了</option></select></label>
+        <div class="editor-actions"><button type="button" id="remove-record" class="quiet" hidden>移除这条记录</button><button type="submit" class="rose-button">保存贴纸</button></div>
+      </form>
+      <p id="record-status" class="status" role="status"></p>
+      <button type="button" id="reload-day" class="text-button" hidden>重新读取</button>
+      <section class="star-paper" aria-labelledby="star-heading">
+        <h3 id="star-heading"><img src="/room/assets/paper-star.webp" alt="">阿川的页边留言</h3>
+        <div id="day-messages"></div>
+        <form id="ask-form"><label for="ask-text" class="sr-only">给这一天的阿川留言</label>
+          <textarea id="ask-text" rows="2" maxlength="1200" placeholder="阿川，这一天…" disabled></textarea>
+          <button type="submit" class="blue-button" disabled>问阿川</button>
+        </form>
+        <p id="ask-status" class="status" role="status"></p>
+      </section>
+      <details class="task-paper">
+        <summary><h3>待办</h3><span class="fold-icon" aria-hidden="true"></span></summary>
         <ul id="day-tasks"></ul>
         <form id="task-form" class="task-form">
           <input type="text" id="new-task" aria-label="新待办" maxlength="120" placeholder="添一件事…" autocomplete="off">
           <button type="submit" aria-label="添加待办">＋</button>
         </form>
-      </section>
+      </details>
       <section class="diary-memos" aria-labelledby="memo-title">
         <h3 id="memo-title">便签</h3>
         <details class="memo-paper iris-note" data-note-field="memo">
@@ -58,12 +91,15 @@
             <img src="/room/assets/pin-fawn.png" alt="" width="81" height="66">
             <strong lang="en">Adrian</strong>
             <span class="memo-preview"></span>
+            <span id="day-note-count" hidden></span>
           </summary>
+          <div id="signed-notes"></div>
           <textarea id="adrian-memo" aria-label="Adrian 的便签全文" rows="4" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
         </details>
       </section>
-      <p id="save-status" role="status"></p>
+      <p id="save-status" class="status" role="status"></p>
     </section>
+    </div>
   </main>
 </body>
 </html>

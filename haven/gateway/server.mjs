@@ -77,11 +77,12 @@ if (liveMode) {
   const { createLocalCredentialStore } = await import('./local-credential-store.mjs');
   live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
     credentialStore: createLocalCredentialStore(dirname(database)), searchMemory: searchLiveFixture, memoryTrial,
+    readCalendar: memoryTrial ? undefined : (args, day, route) => store.calendar.read(args, day, route),
     personalMemory: memoryDashboard && !memoryTrial && values.db === undefined ? createPersonalOmbre(memoryDashboard.origin) : undefined,
     model: process.env.HAVEN_TRIAL_MODEL, profileFile: resolve(dirname(database), 'providers.json') });
   Object.assign(storeOptions, { provider: 'live-lab', models: live.active('mock').models,
     modelsForRoute: route => live.active(route).models,
-    supportsWindowKey: true, resumePendingOnRead: false,
+    supportsWindowKey: true, resumePendingOnRead: false, enableCalendar: !memoryTrial,
     ...(values.db !== undefined && { embedder: false }),
     complete(request, options) {
       if (request.route !== store.windowRoute(request.thread) || request.model !== store.windowModel(request.thread)) {
@@ -177,6 +178,26 @@ async function api(req, res, url) {
   if (live && req.method === 'POST' && origin !== url.origin) {
     throw new RequestError(403, '请从本机小屋内操作。');
   }
+  if (url.pathname.startsWith('/app/calendar/')) {
+    if (!store.calendar) throw new RequestError(404, '这个小屋没有连接本机日历。');
+    const target = live.calendarTarget(store);
+    if (url.pathname === '/app/calendar/month' && req.method === 'GET') {
+      return json(res, 200, store.calendar.month(url.searchParams.get('month'), target.route));
+    }
+    if (url.pathname === '/app/calendar/day' && req.method === 'GET') {
+      const date = url.searchParams.get('date');
+      const fields = store.calendar.fields(date);
+      const thread = store.calendar.threadFor(date, target.route);
+      const messages = thread ? (await store.history({ thread })).messages : [];
+      messages.push(...store.calendar.stars(date, target.route, thread));
+      messages.sort((a, b) => a.id - b.id);
+      return json(res, 200, { date, fields, messages, notes: store.calendar.notes(date, target.route), canAsk: target.ready });
+    }
+    if (req.method !== 'POST') throw new RequestError(405, '请求方法有误。');
+    const input = await readJson(req, 8192);
+    if (url.pathname === '/app/calendar/record') return json(res, 200, store.calendar.save(input));
+    throw new RequestError(404, '日历接口不存在。');
+  }
   if (url.pathname.startsWith('/app/memory/')) {
     if (!memoryDrawer) throw new RequestError(404, '这个小屋没有连接本机记忆柜。');
     if (url.pathname === '/app/memory/dashboard' && req.method === 'GET') {
@@ -262,7 +283,18 @@ async function api(req, res, url) {
   const action = handlers.get(url.pathname);
   if (!action) throw new RequestError(404, '接口不存在');
   if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
-  const input = await readJson(req);
+  let input = await readJson(req);
+  if (url.pathname === '/app/send' && input.calendarDate !== undefined) {
+    if (!store.calendar) throw new RequestError(404, '这个小屋没有连接本机日历。');
+    const target = live.calendarTarget(store, input.sourceThread);
+    if (!target.ready) throw new RequestError(409, '请先在杂物间连接小屋的 Gemini 线路。');
+    if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1200 ||
+        typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(input.requestId)) {
+      throw new RequestError(400, '请填写 1200 字以内的页边留言，并带上发送编号。');
+    }
+    const thread = store.calendar.openDay(input.calendarDate, target);
+    input = { thread, route: target.route, text: input.text, requestId: input.requestId };
+  }
   if (live && ['/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {
     const route = live.active(store.windowRoute(input.thread));
     const model = input.model ?? store.windowModel(input.thread);
@@ -306,6 +338,7 @@ function asset(req, res, url) {
     return res.end(req.method === 'HEAD' ? undefined : html);
   }
   if (file === resolve(dist, 'chat/index.html') || file === resolve(dist, 'other/index.html') ||
+      (store.calendar && file === resolve(dist, 'diary/index.html')) ||
       (!labMode && file === resolve(dist, 'living/pocket/index.html'))) {
     res.setHeader('Content-Security-Policy', privateCsp);
     const mode = 'data-chat-store="gateway" ' + (liveMode ? 'data-live-lab ' : memoryMode ? 'data-memory-lab ' : providerMode ? 'data-provider-lab ' : '');
