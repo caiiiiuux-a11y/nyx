@@ -1,6 +1,9 @@
 // The loopback server selects this adapter. The public preview never imports it.
+import { windowLocation } from './window-location.js';
+
 export function createGatewayChat(mediaAssets) {
-  let model;
+  const active = windowLocation('haven.gateway.last-window.v1');
+  const modelByThread = new Map();
   const unconfirmed = new Map();
 
   async function request(path, payload) {
@@ -23,10 +26,11 @@ export function createGatewayChat(mediaAssets) {
 
   // Reuse the ID and the originally selected model if the response was lost.
   async function submit(path, input) {
-    const key = JSON.stringify([path, input]);
+    const thread = active.id;
+    const key = JSON.stringify([thread, path, input]);
     let payload = unconfirmed.get(key);
     if (!payload) {
-      payload = { ...input, model, requestId: crypto.randomUUID() };
+      payload = { ...input, thread, model: modelByThread.get(thread), requestId: crypto.randomUUID() };
       unconfirmed.set(key, payload);
     }
     try {
@@ -34,21 +38,40 @@ export function createGatewayChat(mediaAssets) {
       unconfirmed.delete(key);
       return result;
     } catch (error) {
-      if (error.status >= 400 && error.status < 500) unconfirmed.delete(key);
+      if (error.status >= 400 && error.status < 500 && error.status !== 413) unconfirmed.delete(key);
       throw error;
     }
   }
 
   return {
     persistent: true,
-    async room() {
-      const history = await request('history');
-      model = history.model;
-      return { ...history, date: new Date(), media: mediaAssets };
+    async windows() { return (await request('windows')).windows; },
+    async createWindow(options = {}) {
+      const id = 'create:' + JSON.stringify([active.id, options]);
+      const requestId = unconfirmed.get(id) ?? crypto.randomUUID();
+      unconfirmed.set(id, requestId);
+      try {
+        const result = await request('windows', { ...options, requestId });
+        unconfirmed.delete(id);
+        return result.window;
+      } catch (error) {
+        if (error.status >= 400 && error.status < 500) unconfirmed.delete(id);
+        throw error;
+      }
     },
+    openWindow(id) { active.select(id); },
+    async room() {
+      const thread = active.id;
+      const room = await request('history?thread=' + encodeURIComponent(thread));
+      modelByThread.set(thread, room.model);
+      if (active.id === thread && !new URL(location.href).searchParams.has('thread')) active.select(thread, false);
+      return { ...room, date: new Date(), media: mediaAssets };
+    },
+    setContext(options) { return request('context', { ...options, thread: active.id }); },
     async selectModel(value) {
-      const result = await request('model', { model: value });
-      model = result.model;
+      const thread = active.id;
+      const result = await request('model', { thread, model: value });
+      modelByThread.set(thread, result.model);
     },
     async send(text, media, quote) {
       const result = await submit('send', { text, media, quote });

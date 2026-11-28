@@ -44,6 +44,27 @@ test('hybrid search recovers a paraphrase, scopes evidence and reuses only the c
   assert.deepEqual(batches.at(-1), [messages[0].text, boxes]);
 });
 
+test('ordinary questions search eligible windows once, keeping source IDs across a paraphrase', async t => {
+  const rows = [line(1, first, 'earlier'), line(2, boxes, 'second'), line(3, first, 'current'), line(6, first, 'future')];
+  const batches = [];
+  const archive = createArchiveSearch(database(t), {
+    readRelatedMessages: () => rows, readMessages: () => [],
+    embedder: { identity: 'fixture', async embed(texts) {
+      batches.push(texts);
+      return texts.map(text => text === first || text === question ? [1, 0, 0] :
+        text === boxes ? [0, 1, 0] : [0, 0, 1]);
+    } }
+  });
+  const params = { thread: 'current', beforeId: 5, excludeMessageIds: [3] };
+  const match = await archive.searchRelated({ ...params, query: question });
+  assert.deepEqual(match.hits.map(h => [h.thread, h.messageId, h.text]), [['earlier', 1, first]]);
+  assert.equal(match.automatic, true);
+  assert.equal(match.mode, 'hybrid');
+  assert.deepEqual(batches, [[question], [first, boxes]]);
+  assert.deepEqual((await archive.searchRelated({ ...params, query: '今天天气如何？' })).hits, []);
+  assert.deepEqual(batches.at(-1), ['今天天气如何？']);
+});
+
 test('when offline, literal matches still cite the exact raw slice, with no fabricated vectors', async t => {
   const db = database(t);
   const message = line(1, '纸'.repeat(970) + boxes);

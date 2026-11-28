@@ -20,11 +20,11 @@ test('an explicit chat lookup passes cited evidence beyond the recent window and
   const send = (id, text) => store.send({ requestId: id, text });
   const first = await send('ticket', '相册第二页夹着蓝色车票。');
   for (let i = 0; i < 13; i++) await send('other-' + i, '浇花记录 ' + i);
-  assert.equal(embeddings, 0);
+  const automaticCalls = embeddings;
   const { messages } = await send('search', '帮我查旧聊天：留着的票根');
   const request = requests.at(-1);
   const ref = messages[1].meta.sourceRefs.find(source => source.messageId === first.messages[0].id);
-  assert.ok(embeddings > 0);
+  assert.ok(embeddings > automaticCalls);
   assert.ok(ref);
   assert.ok(request.archive.hits.length);
   assert.ok(!request.messages.some(message => message.content.includes('蓝色车票')));

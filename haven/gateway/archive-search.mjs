@@ -80,7 +80,7 @@ function passages(messages) {
       const end = boundary(text, Math.min(start + passageSize, text.length));
       const excerpt = text.slice(start, end);
       result.push({
-        messageId: message.id, start, end, text: excerpt,
+        thread: message.meta.thread, messageId: message.id, start, end, text: excerpt,
         hash: createHash('sha256').update(excerpt).digest('hex')
       });
       if (end === text.length) break;
@@ -115,7 +115,7 @@ function neighbor(message, previous) {
   return { id: message.id, from: message.from, ts: message.ts, text: text.slice(start, end), start, end };
 }
 
-export function createArchiveSearch(db, { embedder, readMessages }) {
+export function createArchiveSearch(db, { embedder, readMessages, readRelatedMessages }) {
   db.exec(`CREATE TABLE IF NOT EXISTS archive_passage_vectors (
     thread TEXT NOT NULL, message_id INTEGER NOT NULL, start INTEGER NOT NULL,
     digest TEXT NOT NULL, space TEXT NOT NULL, vector BLOB NOT NULL,
@@ -135,7 +135,7 @@ export function createArchiveSearch(db, { embedder, readMessages }) {
     }
   }
 
-  async function semanticScores(thread, items, query) {
+  async function semanticScores(items, query) {
     embedder ??= createLocalEmbedder();
     const [question] = unitVectors(await embedder.embed([query]), 1);
     const space = embedder.identity;
@@ -148,7 +148,7 @@ export function createArchiveSearch(db, { embedder, readMessages }) {
     }
     const missing = [];
     for (const item of items) {
-      const cached = lookup.get(thread, item.messageId, item.start, item.hash, space)?.vector;
+      const cached = lookup.get(item.thread, item.messageId, item.start, item.hash, space)?.vector;
       if (cached?.byteLength === question.byteLength) {
         const data = cached.buffer.slice(cached.byteOffset, cached.byteOffset + cached.byteLength);
         score(item, new Float32Array(data));
@@ -164,7 +164,7 @@ export function createArchiveSearch(db, { embedder, readMessages }) {
       try {
         for (const [index, item] of batch.entries()) {
           const vector = vectors[index];
-          save.run(thread, item.messageId, item.start, item.hash, space, Buffer.from(vector.buffer));
+          save.run(item.thread, item.messageId, item.start, item.hash, space, Buffer.from(vector.buffer));
           score(item, vector);
         }
         db.exec('COMMIT');
@@ -176,54 +176,71 @@ export function createArchiveSearch(db, { embedder, readMessages }) {
     return scores;
   }
 
+  async function search({ query, thread = 'window', beforeId = Number.MAX_SAFE_INTEGER, limit = 3, excludeMessageIds = [] }, automatic) {
+    if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new RangeError('请输入 1 至 1000 字的检索内容');
+    if (!Number.isSafeInteger(beforeId) || beforeId < 1 || !Number.isInteger(limit) || limit < 1 || limit > 10) {
+      throw new RangeError('检索范围有误');
+    }
+    const excluded = new Set(excludeMessageIds);
+    const read = automatic
+      ? () => readRelatedMessages(beforeId).filter(m => m.id < beforeId && !excluded.has(m.id))
+      : () => readMessages(thread, beforeId).filter(m => m.meta?.thread === thread && m.id < beforeId);
+    const items = passages(read());
+    // Only an exhaustive single-window read can prune that window's stale index entries.
+    if (!automatic) prune(thread, beforeId, items);
+    if (!items.length) return { mode: 'empty', hits: [] };
+    query = query.trim();
+    let scores;
+    try {
+      if (embedder !== false) scores = await semanticScores(items, query);
+    } catch (error) {
+      // A model outage permits a literal-only result. Storage faults must be reported.
+      if (error.code?.startsWith('ERR_SQLITE')) throw error;
+    }
+    const lexical = lexicalQuery(query);
+    const candidates = [];
+    for (const item of items) {
+      const { exact, count, coverage } = lexical(item.text);
+      const similarity = scores?.get(item) ?? 0;
+      const semanticMatch = scores && similarity >= (automatic ? 0.65 : 0.58);
+      const wordMatch = count >= 2 && coverage >= 0.75;
+      if (!(exact || semanticMatch || wordMatch)) continue;
+      const weighted = scores ? similarity * 0.85 + coverage * 0.15 : coverage * 0.8;
+      candidates.push({ item, score: Math.min(1, exact ? Math.max(weighted, 0.85) : weighted) });
+    }
+    candidates.sort((a, b) => b.score - a.score || b.item.messageId - a.item.messageId || a.item.start - b.item.start);
+    // Re-read the authoritative texts after asynchronous inference. A regeneration
+    // during indexing must never return stale text under a live source identifier.
+    const current = read();
+    const positions = new Map(current.map((message, i) => [message.id, i]));
+    const hits = [];
+    const seen = new Set();
+    for (const { item, score } of candidates) {
+      if (seen.has(item.messageId)) continue;
+      const i = positions.get(item.messageId);
+      const message = current[i];
+      if (!message || message.text.slice(item.start, item.end) !== item.text) continue;
+      const context = [];
+      if (!automatic && i > 0) context.push(neighbor(current[i - 1], true));
+      if (!automatic && i + 1 < current.length) context.push(neighbor(current[i + 1], false));
+      hits.push({ ...item, from: message.from, ts: message.ts, score, context });
+      seen.add(item.messageId);
+      if (hits.length === limit) break;
+    }
+    return { mode: scores ? 'hybrid' : 'lexical', hits,
+      ...(!scores && { notice: embedder === false ? '本次按文字检索试验聊天。' : '本机向量服务暂不可用，本次仅按文字检索。' }) };
+  }
   return {
-    async search({ query, thread = 'window', beforeId = Number.MAX_SAFE_INTEGER, limit = 3 }) {
-      if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new RangeError('请输入 1 至 1000 字的检索内容');
-      if (!Number.isSafeInteger(beforeId) || beforeId < 1 || !Number.isInteger(limit) || limit < 1 || limit > 10) {
-        throw new RangeError('检索范围有误');
+    search: options => search(options, false),
+    async searchRelated(options) {
+      const raw = options.query?.trim() || '';
+      const query = raw.length > 1000 ? raw.slice(0, 499) + '…' + raw.slice(-500) : raw;
+      // A greeting or bare acknowledgement carries too little evidence for a historical match.
+      if ([...query.replace(/[\p{P}\p{Z}\s]/gu, '')].length < 2 ||
+          /^(你好|早上好|晚上好|晚安|谢谢|好的|嗯嗯|好吧|知道了|继续|是吗|为什么|然后呢|hello|okay|thank you)[呀啊哦呢啦～~！!。.？?\s]*$/iu.test(query)) {
+        return { automatic: true, mode: 'empty', hits: [] };
       }
-      const read = () => readMessages(thread, beforeId).filter(m => m.meta?.thread === thread && m.id < beforeId);
-      const items = passages(read());
-      prune(thread, beforeId, items);
-      if (!items.length) return { mode: 'empty', hits: [] };
-      query = query.trim();
-      let scores;
-      try {
-        if (embedder !== false) scores = await semanticScores(thread, items, query);
-      } catch (error) {
-        // A model outage permits a literal-only result. Storage faults must be reported.
-        if (error.code?.startsWith('ERR_SQLITE')) throw error;
-      }
-      const lexical = lexicalQuery(query);
-      const candidates = [];
-      for (const item of items) {
-        const { exact, count, coverage } = lexical(item.text);
-        const similarity = scores?.get(item) ?? 0;
-        if (!exact && !(scores && similarity >= 0.58) && !(count >= 2 && coverage >= 0.75)) continue;
-        const weighted = scores ? similarity * 0.85 + coverage * 0.15 : coverage * 0.8;
-        candidates.push({ item, score: Math.min(1, exact ? Math.max(weighted, 0.85) : weighted) });
-      }
-      candidates.sort((a, b) => b.score - a.score || b.item.messageId - a.item.messageId || a.item.start - b.item.start);
-      // Re-read the authoritative texts after asynchronous inference. A regeneration
-      // during indexing must never return stale text under a live source identifier.
-      const current = read();
-      const positions = new Map(current.map((message, i) => [message.id, i]));
-      const hits = [];
-      const seen = new Set();
-      for (const { item, score } of candidates) {
-        if (seen.has(item.messageId)) continue;
-        const i = positions.get(item.messageId);
-        const message = current[i];
-        if (!message || message.text.slice(item.start, item.end) !== item.text) continue;
-        const context = [];
-        if (i > 0) context.push(neighbor(current[i - 1], true));
-        if (i + 1 < current.length) context.push(neighbor(current[i + 1], false));
-        hits.push({ ...item, thread, from: message.from, ts: message.ts, score, context });
-        seen.add(item.messageId);
-        if (hits.length === limit) break;
-      }
-      return { mode: scores ? 'hybrid' : 'lexical', hits,
-        ...(!scores && { notice: embedder === false ? '本次按文字检索试验聊天。' : '本机向量服务暂不可用，本次仅按文字检索。' }) };
+      return { ...await search({ ...options, query, limit: 2 }, true), automatic: true };
     }
   };
 }

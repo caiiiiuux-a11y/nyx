@@ -39,7 +39,7 @@ if (providerMode) {
   const { createChatCompletions } = await import('./chat-completions.mjs');
   const { withFixtureMemory } = await import('./provider-turn.mjs');
   fixture = await startProviderFixture();
-  Object.assign(storeOptions, { models: fixture.models, provider: 'home-fixture', embedder: false,
+  Object.assign(storeOptions, { models: fixture.models, provider: 'home-fixture',
     complete: withFixtureMemory(createChatCompletions(fixture), lab) });
 }
 const store = openStore(database, storeOptions);
@@ -80,6 +80,7 @@ async function readJson(req) {
 
 function historyOptions(params) {
   const options = {};
+  if (params.has('thread')) options.thread = params.get('thread');
   for (const name of ['since', 'limit']) {
     if (!params.has(name)) continue;
     const value = params.get(name);
@@ -90,16 +91,17 @@ function historyOptions(params) {
 }
 
 async function api(req, res, url) {
-  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {
+  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context'].includes(url.pathname)) {
     throw new RequestError(404, '试验线路只开放聊天');
-  }
-  if (url.pathname === '/app/history' && req.method === 'GET') {
-    return json(res, 200, await store.history(historyOptions(url.searchParams)));
   }
   const origin = req.headers.origin;
   if ((origin && origin !== url.origin) || req.headers['sec-fetch-site'] === 'cross-site') {
     throw new RequestError(403, '此操作仅在本机小屋可用');
   }
+  if (url.pathname === '/app/history' && req.method === 'GET') {
+    return json(res, 200, await store.history(historyOptions(url.searchParams)));
+  }
+  if (url.pathname === '/app/windows' && req.method === 'GET') return json(res, 200, store.listWindows());
   const pocket = /^\/app\/pocket(?:\/([^/]+))?$/.exec(url.pathname);
   if (pocket) {
     const id = pocket[1];
@@ -110,6 +112,7 @@ async function api(req, res, url) {
   }
   const handlers = new Map([
     ['/app/send', store.send], ['/app/model', store.selectModel], ['/app/regenerate', store.regenerate],
+    ['/app/windows', store.createWindow], ['/app/context', store.configureContext],
     ['/app/archive/search', store.searchArchive], ['/app/archive/read', store.readArchiveSource],
     ['/app/archive/bind', store.bindEvidence], ['/app/archive/evidence', store.evidence]
   ]);

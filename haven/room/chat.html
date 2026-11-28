@@ -13,7 +13,8 @@
 </head>
 <body data-page="chat">
   <svg aria-hidden="true" class="icon-defs" xmlns="http://www.w3.org/2000/svg">
-    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 4-8 8 8 8"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><path d="M4 8h16M4 15h10"/></symbol>
+    <symbol id="i-model" viewBox="0 0 24 24"><path d="m14 2-10 12h7l-1 8 10-13h-7z"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/></g></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="3" width="13" height="15" rx="2"/><path d="M6 8H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2"/></symbol>
     <symbol id="i-quote" viewBox="0 0 24 24"><path d="M8 8 4 12l4 4m-4-4h9a6 6 0 0 1 6 6"/></symbol>
@@ -28,7 +29,7 @@
 
   <div class="conversation">
     <header class="chat-heading">
-      <a class="round-button" href="/" aria-label="回到首页"><svg><use href="#i-back"/></svg></a>
+      <button type="button" class="round-button" id="open-windows" aria-label="打开对话窗口列表" aria-haspopup="dialog" aria-controls="window-drawer" aria-expanded="false"><svg><use href="#i-windows"/></svg></button>
       <h1>Adrian</h1>
       <button type="button" class="round-button" id="options" aria-haspopup="dialog" aria-controls="settings" aria-expanded="false" aria-label="聊天设置"><svg><use href="#i-more"/></svg></button>
     </header>
@@ -46,15 +47,29 @@
       <div class="input-shell">
         <button type="button" id="attach" class="input-action" aria-label="添加示例附件"><svg><use href="#i-plus"/></svg></button>
         <textarea id="say" rows="1" placeholder="写给 Adrian…" aria-label="写给 Adrian"></textarea>
+        <label class="model-chip"><svg aria-hidden="true"><use href="#i-model"/></svg><select id="model" aria-label="回复模型"></select></label>
         <button type="submit" id="send" class="input-action" aria-label="使用声音样例"><svg><use href="#i-mic"/></svg></button>
       </div>
     </form>
     <nav id="room-nav"></nav>
   </div>
 
+  <dialog id="window-drawer" aria-labelledby="windows-title">
+    <header><h2 id="windows-title">对话窗口</h2><button type="button" id="close-windows" aria-label="关闭窗口列表">×</button></header>
+    <div id="window-list" aria-live="polite"></div>
+    <footer><a href="/">回到首页</a><a id="back-to-pocket" href="/living/pocket/" hidden>回到回头聊</a></footer>
+  </dialog>
   <dialog id="settings" class="action-panel" aria-labelledby="settings-title">
     <h2 id="settings-title">聊天设置</h2>
-    <label class="setting">模拟模型<select id="model"></select></label>
+    <div class="window-actions">
+      <button type="button" id="new-window">新建窗口</button>
+    </div>
+    <details id="context-settings">
+      <summary>上下文与用量</summary>
+      <label class="setting">输入预算<select id="context-budget" aria-label="输入预算"></select></label>
+      <label class="setting">提示缓存<select id="cache-mode" aria-label="提示缓存"></select></label>
+      <p id="context-usage" role="status"></p>
+    </details>
     <label class="setting">显示双方头像<input id="show-avatars" type="checkbox" checked></label>
     <label class="wallpaper">聊天底图<input id="wallpaper" type="file" accept="image/jpeg,image/png,image/webp"></label>
     <button type="button" id="reset-wallpaper">恢复纸纹</button>

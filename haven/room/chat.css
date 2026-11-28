@@ -115,14 +115,22 @@ body[data-page="chat"] button, body[data-page="chat"] textarea, body[data-page="
 .pending-details { display: flex; flex-wrap: wrap; gap: 4px; }
 .pending-details button { margin-bottom: 5px; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; padding: 4px 9px; border: 1px solid var(--chat-edge); border-radius: 6px; background: #fff5e7; font-size: 12px !important; }
 .input-shell {
-  display: flex; align-items: flex-end; padding: 3px; gap: 3px;
+  display: grid; grid-template-columns: 40px minmax(0,1fr) 40px;
+  grid-template-areas: "attach input send"; align-items: center; padding: 3px; gap: 1px 3px;
   border: 1px solid var(--chat-edge); border-radius: 26px; background: #fff7ecbd;
   box-shadow: 0 2px 4px #78583b26,inset 0 1px 2px #fff8;
 }
-.input-action { flex: 0 0 auto; width: 39px; height: 39px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; }
+.input-action { width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; }
 .input-action svg { width: 23px !important; height: 23px !important; }
-#send { background: #5c91aa; color: #fff; box-shadow: inset 0 1px 2px #335e7555; }
-#say { min-width: 0; flex: 1; display: block; resize: none; box-sizing: border-box; border: 1px solid #e6d7c5; border-radius: 18px; background: #faf0e74d; padding: 7px 11px; font: 16px/22px var(--chat-text); height: 38px; }
+#attach { grid-area: attach; }
+#send { grid-area: send; background: #5c91aa; color: #fff; box-shadow: inset 0 1px 2px #335e7555; }
+#say { grid-area: input; width: 100%; min-width: 0; display: block; resize: none; box-sizing: border-box; border: 0; background: transparent; padding: 8px; font: 16px/22px var(--chat-text); height: 38px; }
+.composer.is-writing .input-shell { grid-template-areas: "input input input" "attach model send"; border-radius: 22px; }
+.composer.is-writing #say { padding-inline: 12px; }
+.model-chip { grid-area: model; display: none; min-width: 0; justify-self: start; max-width: 100%; align-items: center; gap: 4px; color: #496c7e; }
+.composer.is-writing .model-chip { display: flex; }
+.conversation .model-chip svg { flex: none; width: 14px; height: 14px; fill: currentColor; stroke-width: 1.2; }
+body[data-page="chat"] #model { width: auto; max-width: calc(100% - 18px); min-width: 0; height: 40px; padding: 0; cursor: pointer; border: 0; color: inherit; background: transparent; font: 600 14px var(--chat-text); text-overflow: ellipsis; }
 #say::placeholder { color: #866c58; }
 #say { overflow-y: auto; scrollbar-width: none; }
 #say::-webkit-scrollbar { display: none; }
@@ -134,7 +142,7 @@ body[data-page="chat"] dialog {
 }
 body[data-page="chat"] dialog::backdrop { background: #412e2047; }
 body[data-page="chat"] dialog h2 { font: 600 21px var(--chat-serifs); margin: 0 0 16px; }
-body[data-page="chat"] dialog button, #model {
+body[data-page="chat"] dialog button {
   cursor: pointer; border: 1px solid var(--chat-edge); border-radius: 10px; min-height: 40px;
   padding: 7px 12px; background: #fffaf5;
 }
@@ -143,6 +151,23 @@ body[data-page="chat"] dialog form button { font-weight: 600; }
 #settings-status { color: #765f4f; font-size: 12px; }
 .setting { display: flex; align-items: center; justify-content: space-between; min-height: 46px; gap: 12px; }
 .wallpaper, .wallpaper input { display: block; width: 100%; margin: 9px 0; }
+body[data-page="chat"] #window-drawer {
+  position: fixed; inset: var(--view-top,0px) auto auto max(0px,calc((100vw - 660px)/2));
+  margin: 0; width: min(80vw,310px); max-width: none; height: var(--view-height,100dvh);
+  max-height: none; padding: max(18px,env(safe-area-inset-top)) 16px max(18px,env(safe-area-inset-bottom));
+  border-radius: 0 20px 20px 0; border-left: 0; box-sizing: border-box;
+  background: #fcf6ef url('/room/assets/paper-texture.webp') center / 340px auto;
+}
+#window-drawer[open] { display: flex; flex-direction: column; }
+body[data-page="chat"] #window-drawer::backdrop { background: #49382930; }
+#window-drawer header, #window-drawer footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+body[data-page="chat"] #windows-title { margin: 0; font-size: 22px; }
+body[data-page="chat"] #close-windows { min-width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; font-size: 23px; }
+#window-list { flex: 1; min-height: 0; margin: 12px -3px; padding-inline: 3px; overflow-y: auto; overscroll-behavior: contain; }
+body[data-page="chat"] #window-list button { display: block; width: 100%; min-height: 44px; padding: 10px 12px; margin-bottom: 3px; border: 1px solid transparent; background: transparent; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+body[data-page="chat"] #window-list button[aria-current="true"] { background: #dce8ecb3; border-color: #bccdd3; color: #365d72; }
+#window-drawer footer { border-top: 1px solid var(--chat-edge); padding-top: 6px; }
+#window-drawer footer a { padding: 11px 4px; color: var(--chat-blue); text-underline-offset: 3px; }
 body[data-page="chat"] dialog.action-panel {
   position: fixed;
   inset: auto;
@@ -188,6 +213,12 @@ body[data-page="chat"] #choice-list button {
 body[data-page="chat"] #choice-list button:is(:hover,:focus-visible,:active) { background: #fff8; }
 body[data-page="chat"] #settings { width: min(252px, calc(100vw - 16px)); padding: 12px 15px; }
 body[data-page="chat"] #settings h2 { margin: 0 0 5px; }
+.window-actions { display: grid; margin-bottom: 4px; }
+body[data-page="chat"] .window-actions button { border: 0; border-radius: 7px; background: transparent; padding: 8px 0; text-align: left; }
+#context-settings { border-block: 1px solid #cdbca77d; }
+#context-settings summary { padding: 12px 0; cursor: pointer; }
+#context-settings select { border: 1px solid var(--chat-edge); background: #fffbf6; border-radius: 7px; padding: 5px; }
+#context-usage { white-space: pre-line; margin: 6px 0 10px; color: #67594c; font-size: 12px; }
 body[data-page="chat"] #memory-details {
   width: min(260px, calc(100vw - 16px)); max-height: min(50dvh, 330px);
   padding: 8px 14px 12px; overscroll-behavior: contain; overflow-wrap: anywhere;

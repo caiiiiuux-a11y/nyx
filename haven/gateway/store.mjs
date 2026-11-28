@@ -1,12 +1,12 @@
 import { DatabaseSync } from 'node:sqlite';
 import { assets, models as mockModels } from '../room/catalog.mjs';
-import { archiveQuery, buildModelRequest, generateMockReply, RECENT_TURN_LIMIT } from './model.mjs';
+import { archiveQuery, buildModelRequest, generateMockReply } from './model.mjs';
+import { combineUsage, estimatedUsage, fitHistory } from './usage.mjs';
 import { createArchiveSearch } from './archive-search.mjs';
 import { createEvidenceStore } from './evidence.mjs';
 import { createPocketStore } from './pocket.mjs';
 import { createLabTurns, labModelRequest } from './memory-turn.mjs';
-
-const thread = 'window';
+import { createWindowStore } from './windows.mjs';
 
 export class RequestError extends Error {
   constructor(status, message) {
@@ -52,7 +52,7 @@ function humanMessage(turn) {
   const draft = JSON.parse(turn.draft);
   return {
     id: turn.id * 2 - 1, from: 'human', text: draft.text, ts: turn.created,
-    meta: { thread, attachments: draft.media ? [assets[draft.media]] : [], quote: draft.quote }
+    meta: { thread: turn.thread, attachments: draft.media ? [assets[draft.media]] : [], quote: draft.quote }
   };
 }
 
@@ -91,7 +91,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       request_id TEXT PRIMARY KEY, message_id INTEGER NOT NULL, model TEXT, answer TEXT NOT NULL
     );
   `);
-  const currentModel = () => db.prepare("SELECT value FROM settings WHERE name='model'").get()?.value ?? models[0];
+  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError });
   const turnById = id => db.prepare('SELECT * FROM turns WHERE id=?').get(id);
   let queue = Promise.resolve();
   let jobs = 0;
@@ -120,27 +120,54 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     return row && messagesFromTurn(row).find(message => message.id === id);
   }
 
-  function readArchiveSource({ messageId }) {
+  function readArchiveSource({ messageId, thread: selected }) {
+    const { id: thread } = windows.get(selected);
     const message = readMessage(messageId);
-    if (!message) throw new RequestError(404, '找不到这条消息');
-    const context = [];
-    for (let id = Math.max(1, messageId - 2); id <= Math.min(Number.MAX_SAFE_INTEGER - 1, messageId + 2); id++) {
-      const entry = readMessage(id);
-      if (entry) context.push(entry);
-    }
+    if (message?.meta.thread !== thread) throw new RequestError(404, '找不到这条消息');
+    const turn = Math.ceil(messageId / 2);
+    const previous = db.prepare('SELECT * FROM turns WHERE thread=? AND id<? ORDER BY id DESC LIMIT 2').all(thread, turn).reverse();
+    const next = db.prepare('SELECT * FROM turns WHERE thread=? AND id>=? ORDER BY id LIMIT 3').all(thread, turn);
+    const neighbors = [...previous, ...next].flatMap(messagesFromTurn);
+    const index = neighbors.findIndex(entry => entry.id === messageId);
+    const context = neighbors.slice(Math.max(0, index - 2), index + 3);
     return { thread, message, context };
   }
 
   const sources = createEvidenceStore(db, { readMessage, transaction, invalid: text => new RequestError(400, text) });
+  function evidence(input) {
+    const { id: thread } = windows.get(input.thread);
+    const result = sources.evidence(input);
+    return { ...result, sources: result.sources.filter(source => source.thread === thread) };
+  }
+  function bindEvidence(input) {
+    const { id: thread } = windows.get(input.thread);
+    if (Array.isArray(input.messageIds) && input.messageIds.some(id => readMessage(id)?.meta.thread !== thread)) {
+      throw new RequestError(400, '请选择当前窗口中的来源消息');
+    }
+    sources.bind(input);
+    return evidence(input);
+  }
   const executeLabTool = memoryLab && createLabTurns(db, memoryLab);
-  const archiveIndex = createArchiveSearch(db, { embedder, readMessages(requestedThread, beforeId) {
-    if (requestedThread !== thread) return [];
-    return db.prepare('SELECT * FROM turns WHERE id <= ? ORDER BY id').all(Math.floor(beforeId / 2))
-      .filter(row => archiveQuery(JSON.parse(row.draft).text) === null)
+  function ordinaryMessages(turns, beforeId) {
+    return turns.filter(row => archiveQuery(JSON.parse(row.draft).text) === null)
       .flatMap(messagesFromTurn).filter(message => message.id < beforeId);
-  } });
+  }
+  const archiveIndex = createArchiveSearch(db, {
+    embedder,
+    readMessages(thread, beforeId) {
+      const rows = db.prepare('SELECT * FROM turns WHERE thread=? AND id <= ? ORDER BY id').all(thread, Math.floor(beforeId / 2));
+      return ordinaryMessages(rows, beforeId);
+    },
+    readRelatedMessages(beforeId) {
+      const rows = db.prepare('SELECT * FROM turns WHERE answer IS NOT NULL AND id<=? ORDER BY id').all(Math.floor(beforeId / 2));
+      // Recalled quotations already have their own source; don't index the model echoing them again.
+      return ordinaryMessages(rows, beforeId).filter(message => !(message.from === 'ai' && message.meta?.automaticRecall &&
+        message.meta.sourceRefs?.some(source => source.excerpt?.trim() && message.text.includes(source.excerpt))));
+    }
+  });
 
-  function searchArchive({ query, limit = 3 }, beforeId = Number.MAX_SAFE_INTEGER) {
+  function searchArchive({ query, limit = 3, thread: selected }, beforeId = Number.MAX_SAFE_INTEGER) {
+    const { id: thread } = windows.get(selected);
     if (typeof query !== 'string' || !query.trim() || query.length > 1000) {
       throw new RequestError(400, '请输入 1 至 1000 字的旧聊天线索');
     }
@@ -148,29 +175,38 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     return archiveIndex.search({ query: query.trim(), limit, thread, beforeId });
   }
 
-  async function makeAnswer(turn, model, previousAnswer) {
+  async function makeAnswer(turn, model, previousAnswer, prefs = { contextBudget: turn.context_budget, cacheMode: turn.cache_mode }) {
+    const thread = turn.thread;
     const human = humanMessage(turn);
     let archive;
     let request;
     if (executeLabTool) {
-      request = labModelRequest(model, human);
+      request = { ...labModelRequest(model, human), ...prefs, thread };
+      request.messages = fitHistory(request.messages, prefs.contextBudget, request.tools);
     } else {
+      const prior = windows.recent(thread, turn.id);
+      request = buildModelRequest({ model, messages: [...prior, human], thread, ...prefs });
       const query = archiveQuery(human.text);
       if (query !== null) {
         archive = query.length > 0 && query.length <= 1000
-          ? await searchArchive({ query }, human.id)
+          ? await searchArchive({ query, thread }, human.id)
           : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
+      } else if (human.text.trim()) {
+        const included = request.messages.length - 2;
+        const excludeMessageIds = prior.slice(prior.length - included).map(message => message.id);
+        const related = await archiveIndex.searchRelated({ query: human.text, thread, beforeId: human.id, excludeMessageIds });
+        if (related.hits.length) archive = related;
       }
-      const prior = db.prepare('SELECT * FROM turns WHERE id < ? ORDER BY id DESC LIMIT ?')
-        .all(turn.id, RECENT_TURN_LIMIT).reverse();
-      request = buildModelRequest({ model, messages: [...prior.flatMap(messagesFromTurn), human], archive });
+      if (archive) request.archive = archive;
     }
     const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text };
     let result;
+    let usage;
     let memoryTool;
     let memorySources;
     try {
       result = await complete(request, options);
+      usage = result?.usage ?? estimatedUsage(request.messages, request.tools);
       memoryTool = result?.memoryTool;
       if (executeLabTool && result?.toolCall) {
         const call = result.toolCall;
@@ -178,117 +214,179 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         memoryTool = { name: call.name, status: receipt.status, sourceMessageId: human.id };
         if (receipt.bucketId) {
           memoryTool.bucketId = receipt.bucketId;
-          if (call.name === 'hold') sources.bind({ memoryId: receipt.bucketId, messageIds: [human.id] });
+          if (call.name === 'hold') bindEvidence({ memoryId: receipt.bucketId, messageIds: [human.id], thread });
+          // A confirmed receipt from the room's shared memory may cite a saved source
+          // from an older window. Only these frozen excerpts accompany the reply.
           else memorySources = sources.evidence({ memoryId: receipt.bucketId }).sources
             .filter(source => source.id < human.id)
             .map(source => ({ thread: source.thread, messageId: source.id, start: 0,
               end: source.text.length, excerpt: source.text }));
         }
-        const messages = [...request.messages,
+        const messages = fitHistory([...request.messages,
           { role: 'assistant', toolCall: call },
           { role: 'tool', name: call.name, content: JSON.stringify(receipt) }
-        ];
+        ], prefs.contextBudget);
         result = await complete({ ...request, messages, tools: [] }, options);
+        usage = combineUsage(usage, result?.usage ?? estimatedUsage(messages, []));
       }
       if (result?.toolCall || typeof result?.text !== 'string') throw new Error('Invalid completion');
-    } catch {
+    } catch (error) {
+      if (error instanceof RangeError) throw error;
       throw new RequestError(503, '消息已保存，当前模型暂时无法完成回复，请重试');
     }
+    const archiveHits = result.archiveHits ?? archive?.hits;
     return {
       id: turn.id * 2, from: 'ai', text: result.text,
       ts: previousAnswer?.ts ?? new Date().toISOString(),
       meta: {
         speaker: 'Adrian', provider, model, thread, fallback: false, attachments: [],
+        usage,
         ...(memoryTool && { memoryTool }),
         ...(memorySources?.length && { sourceRefs: memorySources }),
-        ...(archive && { sourceRefs: archive.hits.map(({ thread, messageId, start, end, text }) => ({
+        ...(archiveHits?.length && { archiveMode: archive.mode, automaticRecall: Boolean(archive.automatic) }),
+        ...(archiveHits?.length && { sourceRefs: archiveHits.map(({ thread, messageId, start, end, text }) => ({
           thread, messageId, start, end, excerpt: text
         })) })
       }
     };
   }
 
-  async function finishPending(throughId) {
-    const pending = db.prepare('SELECT * FROM turns WHERE answer IS NULL AND id <= ? ORDER BY id');
+  async function finishPending(thread, throughId) {
+    const pending = db.prepare('SELECT * FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 AND id <= ? ORDER BY id');
     const save = db.prepare('UPDATE turns SET answer=? WHERE id=? AND answer IS NULL');
-    for (const turn of pending.all(throughId)) {
-      const answer = await makeAnswer(turn, turn.model);
-      save.run(JSON.stringify(answer), turn.id);
+    for (const turn of pending.all(thread, throughId)) {
+      try {
+        const answer = await makeAnswer(turn, turn.model);
+        transaction(() => {
+          if (save.run(JSON.stringify(answer), turn.id).changes) windows.recordAnswer(thread, turn.id);
+        });
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        db.prepare('UPDATE turns SET budget_blocked=1 WHERE id=?').run(turn.id);
+        if (turn.id === throughId) throw budgetError();
+      }
     }
   }
 
-  async function history({ since = 0, limit } = {}) {
+  function budgetError() {
+    return new RequestError(413, '这条消息超出了当前上下文预算，请缩短文字或提高预算后重试');
+  }
+  async function history({ since = 0, limit, thread: selected } = {}) {
+    const window = windows.get(selected);
+    const thread = window.id;
     // Recover a turn interrupted by a restart. While a send is running, return the
     // already committed user message immediately instead of waiting for the provider.
-    if (!jobs && db.prepare('SELECT 1 FROM turns WHERE answer IS NULL LIMIT 1').get()) {
-      try { await inRoomOrder(() => finishPending(Number.MAX_SAFE_INTEGER)); }
+    if (!jobs && db.prepare('SELECT 1 FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 LIMIT 1').get(thread)) {
+      try { await inRoomOrder(() => finishPending(thread, Number.MAX_SAFE_INTEGER)); }
       catch (error) {
         if (!(error instanceof RequestError) || error.status !== 503) throw error;
       }
     }
-    let query = 'SELECT * FROM turns WHERE id >= ? ORDER BY id';
-    const params = [Math.floor(since / 2) + 1];
+    let query = 'SELECT * FROM turns WHERE thread=? AND id >= ? ORDER BY id';
+    const params = [thread, Math.floor(since / 2) + 1];
     if (limit != null) {
       query += ' LIMIT ?';
       params.push(Math.ceil(limit / 2) + 1);
     }
     const messages = db.prepare(query).all(...params).flatMap(messagesFromTurn).filter(m => m.id > since);
-    return { messages: limit == null ? messages : messages.slice(0, limit), thread, model: currentModel(), models };
+    return { messages: limit == null ? messages : messages.slice(0, limit), thread, model: window.model, models,
+      contextBudget: window.contextBudget, cacheMode: window.cacheMode, usage: windows.latestUsage(thread) };
   }
 
   async function send(input) {
+    const window = windows.get(input.thread);
     const key = checkedRequestId(input.requestId);
     const draft = checkedDraft(input, models);
     const encoded = JSON.stringify(draft);
     const id = transaction(() => {
-      const existing = db.prepare('SELECT id, draft FROM turns WHERE request_id=?').get(key);
+      const existing = db.prepare('SELECT id,thread,draft,budget_blocked FROM turns WHERE request_id=?').get(key);
       if (existing) {
-        if (existing.draft !== encoded) throw new RequestError(409, '发送编号已用于不同的消息');
+        if (existing.thread !== window.id || existing.draft !== encoded) throw new RequestError(409, '发送编号已用于不同的消息');
+        if (!existing.budget_blocked) return existing.id;
+      }
+      if (draft.quote && readMessage(draft.quote.id)?.meta.thread !== window.id) {
+        throw new RequestError(400, '请选择当前窗口中的引用');
+      }
+      const now = new Date().toISOString();
+      const model = draft.model ?? window.model;
+      const human = humanMessage({ id: 1, thread: window.id, draft: encoded, created: now });
+      try {
+        buildModelRequest({ model, messages: [human], thread: window.id, contextBudget: window.contextBudget, cacheMode: window.cacheMode });
+      } catch (error) {
+        if (error instanceof RangeError) throw budgetError();
+        throw error;
+      }
+      if (existing) {
+        db.prepare('UPDATE turns SET budget_blocked=0,context_budget=?,cache_mode=? WHERE id=?')
+          .run(window.contextBudget, window.cacheMode, existing.id);
         return existing.id;
       }
-      const result = db.prepare('INSERT INTO turns(request_id,draft,model,created) VALUES(?,?,?,?)')
-        .run(key, encoded, draft.model ?? currentModel(), new Date().toISOString());
+      windows.recordTurn(window, draft, now);
+      const result = db.prepare('INSERT INTO turns(thread,request_id,draft,model,created,context_budget,cache_mode) VALUES(?,?,?,?,?,?,?)')
+        .run(window.id, key, encoded, model, now, window.contextBudget, window.cacheMode);
       return Number(result.lastInsertRowid);
     });
     // Commit the human message before invoking the adapter, including on the first attempt.
-    await inRoomOrder(() => finishPending(id));
-    return { messages: messagesFromTurn(turnById(id)) };
+    await inRoomOrder(() => finishPending(window.id, id));
+    const turn = turnById(id);
+    if (turn.budget_blocked) throw budgetError();
+    return { messages: messagesFromTurn(turn) };
   }
 
   async function regenerate(input) {
+    const window = windows.get(input.thread);
     const key = checkedRequestId(input.requestId);
     const { id } = input;
     if (!Number.isSafeInteger(id) || id < 2 || id % 2) throw new RequestError(400, '请选择 Adrian 的回复');
     const model = input.model == null ? null : checkedModel(input.model, models);
-    const selected = model ?? currentModel();
+    const selected = model ?? window.model;
     return inRoomOrder(async () => {
+      const turn = turnById(id / 2);
+      if (!turn || turn.thread !== window.id) throw new RequestError(404, '找不到这条回复');
       const old = db.prepare('SELECT * FROM regenerations WHERE request_id=?').get(key);
       if (old) {
         if (old.message_id !== id || old.model !== model) throw new RequestError(409, '重试编号已用于不同的回复');
-        return { message: withHoldSource(JSON.parse(old.answer), humanMessage(turnById(id / 2))) };
+        return { message: withHoldSource(JSON.parse(old.answer), humanMessage(turn)) };
       }
-      await finishPending(id / 2);
-      const turn = turnById(id / 2);
-      if (!turn) throw new RequestError(404, '找不到这条回复');
-      const answer = await makeAnswer(turn, selected, JSON.parse(turn.answer));
+      await finishPending(window.id, turn.id);
+      const prior = turnById(turn.id);
+      if (prior.budget_blocked) throw budgetError();
+      let answer;
+      try {
+        answer = await makeAnswer(prior, selected, JSON.parse(prior.answer),
+          { contextBudget: window.contextBudget, cacheMode: window.cacheMode });
+      } catch (error) {
+        if (error instanceof RangeError) throw budgetError();
+        throw error;
+      }
       const encoded = JSON.stringify(answer);
       transaction(() => {
         db.prepare('UPDATE turns SET answer=? WHERE id=?').run(encoded, turn.id);
         db.prepare('INSERT INTO regenerations(request_id,message_id,model,answer) VALUES(?,?,?,?)').run(key, id, model, encoded);
+        windows.recordAnswer(window.id, turn.id);
       });
       return { message: withHoldSource(answer, humanMessage(turn)) };
     });
   }
 
   function selectModel(input) {
+    const window = windows.get(input.thread);
     const model = checkedModel(input.model, models);
-    db.prepare("INSERT INTO settings(name,value) VALUES('model',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value")
-      .run(model);
+    db.prepare('UPDATE chat_windows SET model=? WHERE id=?').run(model, window.id);
     return { model };
   }
+  const pocket = createPocketStore(db, RequestError);
   return {
-    pocket: createPocketStore(db, RequestError),
+    pocket: { ...pocket, create(input) {
+      if (input.source != null) {
+        const source = readMessage(input.source.id);
+        if (!source || source.meta.thread !== (input.source.thread ?? 'window') || source.ts !== input.source.ts ||
+            source.from !== input.source.from) throw new RequestError(400, '找不到纸条的原消息');
+      }
+      return pocket.create(input);
+    } },
+    listWindows: windows.list, createWindow: windows.create, configureContext: windows.configure,
     history, send, regenerate, selectModel, searchArchive: input => inRoomOrder(() => searchArchive(input)),
-    readArchiveSource, bindEvidence: sources.bind, evidence: sources.evidence, close: () => db.close()
+    readArchiveSource, bindEvidence, evidence, close: () => db.close()
   };
 }

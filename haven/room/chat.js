@@ -19,11 +19,9 @@ const chatScope = chatService.persistent ? 'gateway' : 'preview';
 const memoryLab = document.documentElement.hasAttribute('data-memory-lab');
 const providerLab = document.documentElement.hasAttribute('data-provider-lab');
 const requestedNote = new URLSearchParams(location.search).get('note');
-if (requestedNote !== null) {
-  const back = document.querySelector('.chat-heading a');
-  back.href = '/living/pocket/';
-  back.setAttribute('aria-label', '回到回头聊');
-}
+$('back-to-pocket').hidden = requestedNote === null;
+const drafts = new Map();
+const issues = new Map();
 let quote = null;
 let media = '';
 let playing = null;
@@ -67,26 +65,35 @@ function storeStatus(message, retry) {
   button.hidden = !retry;
   button.onclick = retry || null;
 }
-function setBusy(value) {
+function setBusy(value, lockDraft = true) {
   busy = value;
   const locked = busy || !room;
-  for (const control of [$('send'), $('attach'), picker, quoteChip, attachmentChip]) {
+  for (const control of [$('send'), $('attach'), picker, quoteChip, attachmentChip,
+    $('new-window'), $('context-budget'), $('cache-mode')]) {
     control.disabled = locked;
   }
-  say.readOnly = locked;
+  $('open-windows').disabled = busy;
+  say.readOnly = !room || (busy && lockDraft);
 }
-async function writeChat(action, failure, retry) {
+async function writeChat(action, failure, retry, preserveIssue = false) {
   if (!room || busy) return;
-  setBusy(true);
+  setBusy(true, !preserveIssue);
+  if (!preserveIssue || issues.get(room.thread)?.operation === failure) issues.delete(room.thread);
   storeStatus('');
-  try { await action(); }
+  try {
+    await action();
+    const issue = issues.get(room.thread);
+    if (issue) storeStatus(issue.message, issue.retry);
+  }
   catch (error) {
-    const rejected = error.status >= 400 && error.status < 500;
-    storeStatus(error.notice || failure, rejected ? null : retry);
+    const rejected = error.status >= 400 && error.status < 500 && error.status !== 413;
+    const issue = { operation: failure, message: error.notice || failure, retry: rejected ? null : retry };
+    issues.set(room.thread, issue);
+    storeStatus(issue.message, issue.retry);
   }
   finally {
     setBusy(false);
-    picker.value = room.model;
+    if (room) picker.value = room.model;
   }
 }
 function hm(ts) {
@@ -171,6 +178,11 @@ function openPanel(dialog, anchor) {
   panel = { dialog, anchor };
   anchor.setAttribute('aria-expanded', 'true');
   dialog.show();
+  positionPanel();
+}
+function positionPanel() {
+  if (!panel) return;
+  const { dialog, anchor } = panel;
   const rect = anchor.getBoundingClientRect();
   const viewport = window.visualViewport;
   const left = (viewport?.offsetLeft || 0) + 8;
@@ -199,9 +211,9 @@ document.addEventListener('focusin', event => {
   if (panel && !panel.dialog.contains(event.target) && !panel.anchor.contains(event.target)) dismissPanel();
 });
 log.addEventListener('scroll', dismissPanel, { passive: true });
-window.addEventListener('resize', dismissPanel);
-window.visualViewport?.addEventListener('resize', dismissPanel);
-window.visualViewport?.addEventListener('scroll', dismissPanel);
+window.addEventListener('resize', positionPanel);
+window.visualViewport?.addEventListener('resize', positionPanel);
+window.visualViewport?.addEventListener('scroll', positionPanel);
 for (const dialog of [$('choices'), $('settings'), $('memory-details')]) {
   dialog.addEventListener('close', () => {
     if (!dialog.open && panel?.dialog === dialog) dismissPanel();
@@ -212,7 +224,7 @@ $('close-memory').onclick = () => {
   dismissPanel();
   anchor?.focus({ preventScroll: true });
 };
-function showMemoryDetails(anchor, tool, refs) {
+function showMemoryDetails(anchor, tool, refs, archiveMode) {
   $('memory-title').textContent = anchor.getAttribute('aria-label');
   const content = $('memory-content');
   content.replaceChildren();
@@ -221,7 +233,10 @@ function showMemoryDetails(anchor, tool, refs) {
     const status = { ok: '已收到回执', error: '未完成', uncertain: '结果待核对' }[tool.status];
     content.append(element('p', 'receipt-status', ['Ombre', action, status].filter(Boolean).join(' · ')));
   }
-  if (refs.length && tool) content.append(element('p', 'receipt-caption', '原话摘录'));
+  if (archiveMode === 'hybrid' || archiveMode === 'lexical') {
+    const method = archiveMode === 'hybrid' ? '语义和文字匹配' : '文字匹配';
+    content.append(element('p', 'receipt-caption', '聊天原文 · ' + method));
+  } else if (refs.length && tool) content.append(element('p', 'receipt-caption', '原话摘录'));
   for (const ref of refs) {
     const characters = Array.from(ref.excerpt.trim());
     const text = characters.length > 96 ? characters.slice(0, 96).join('') + '…' : characters.join('');
@@ -242,11 +257,12 @@ function showChoices(title, items, anchor) {
   }));
   openPanel($('choices'), anchor);
 }
-function setQuote(value) {
+function setQuote(value, focus = true) {
   quote = value;
   quoteChip.hidden = !value;
   quoteChip.textContent = value ? '×　引用 ' + value.who + ' · ' + value.text : '';
-  if (value) say.focus();
+  if (value && focus) say.focus();
+  updateComposer();
 }
 function quoteMessage(m) {
   if (busy) return;
@@ -448,7 +464,7 @@ function build(m) {
   const refs = (m.meta.sourceRefs || []).filter(ref => typeof ref.excerpt === 'string' && ref.excerpt.trim());
   if (tool || refs.length) {
     const trigger = control(tool ? '这次用到的记忆' : '原话摘录',
-      event => showMemoryDetails(event.currentTarget, tool, refs), 'more');
+      event => showMemoryDetails(event.currentTarget, tool, refs, m.meta.archiveMode), 'more');
     trigger.className = 'memory-trigger';
     trigger.setAttribute('aria-haspopup', 'dialog');
     trigger.setAttribute('aria-expanded', 'false');
@@ -497,6 +513,10 @@ function build(m) {
   return row;
 }
 function updateComposer() {
+  const atBottom = log.scrollHeight - log.clientHeight - log.scrollTop < 4;
+  const writing = document.activeElement === say || document.activeElement === picker ||
+    !!(say.value || media || quote);
+  composer.classList.toggle('is-writing', writing);
   say.style.height = 'auto';
   say.style.height = Math.min(say.scrollHeight + 2, 108) + 'px';
   const ready = !!(say.value.trim() || media);
@@ -504,6 +524,31 @@ function updateComposer() {
   $('send').setAttribute('aria-label', ready ? '发送消息' : '使用声音样例');
   attachmentChip.hidden = !media;
   attachmentChip.textContent = media ? '×　' + room.media[media].name : '';
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+function draftKey() { return 'haven.room.draft.' + chatScope + '.' + room.thread; }
+function saveDraft() {
+  if (!room) return;
+  const key = draftKey();
+  if (say.value || media || quote) {
+    const draft = { text: say.value, media, quote };
+    drafts.set(key, draft);
+    try { sessionStorage.setItem(key, JSON.stringify(draft)); } catch {}
+  } else {
+    drafts.delete(key);
+    try { sessionStorage.removeItem(key); } catch {}
+  }
+}
+function restoreDraft() {
+  const key = draftKey();
+  let draft = drafts.get(key);
+  if (!draft) {
+    try { draft = JSON.parse(sessionStorage.getItem(key)); } catch {}
+  }
+  say.value = draft?.text || '';
+  media = room.media[draft?.media] ? draft.media : '';
+  setQuote(draft?.quote || null, false);
 }
 
 async function showMemoryLab() {
@@ -542,12 +587,17 @@ function send() {
   }
   return writeChat(async () => {
     const additions = await chatService.send(text, media, quote);
-    room.messages.push(...additions);
     log.querySelector('.chat-empty')?.remove();
-    for (const m of additions) log.append(build(m));
+    for (const m of additions) {
+      // A retry may confirm messages already displayed after reopening this window.
+      if (room.messages.some(previous => previous.id === m.id)) continue;
+      room.messages.push(m);
+      log.append(build(m));
+    }
     say.value = '';
     setQuote(null);
     attach('');
+    saveDraft();
     log.scrollTop = log.scrollHeight;
   }, '未能确认发送结果，输入已保留。', send);
 }
@@ -558,6 +608,11 @@ $('attach').onclick = () => showChoices('添加附件', [
 ], $('attach'));
 composer.onsubmit = ev => { ev.preventDefault(); send(); };
 say.oninput = updateComposer;
+say.addEventListener('focus', updateComposer);
+composer.addEventListener('focusout', event => {
+  if (!composer.contains(event.relatedTarget)) requestAnimationFrame(updateComposer);
+});
+window.addEventListener('pagehide', saveDraft);
 if (touchInput) say.setAttribute('enterkeyhint', 'enter');
 say.onkeydown = ev => {
   if (ev.key === 'Enter' && !ev.shiftKey && !touchInput && !ev.isComposing && ev.keyCode !== 229) {
@@ -565,12 +620,26 @@ say.onkeydown = ev => {
     if (say.value.trim() || media) send();
   }
 };
-async function loadRoom() {
+async function loadRoom({ select, create = false, locateNote = false } = {}) {
+  if (busy) return;
+  saveDraft();
+  dismissPanel();
+  if ($('window-drawer').open) $('window-drawer').close();
+  stopReading();
+  playing?.pause();
+  playing = null;
   setBusy(true);
   log.setAttribute('aria-busy', 'true');
   storeStatus(chatService.persistent ? '正在读取本机对话…' : '');
+  let selected = false;
   try {
+    if (create) select = (await chatService.createWindow()).id;
+    if (select) {
+      await chatService.openWindow(select);
+      selected = true;
+    }
     room = await chatService.room();
+    restoreDraft();
     if (memoryLab) {
       if (!document.querySelector('.memory-lab-guide')) await showMemoryLab();
     } else if (providerLab) {
@@ -586,15 +655,24 @@ async function loadRoom() {
     if (!room.messages.length) log.append(element('p', 'chat-empty',
       memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : providerLab
         ? '发一句测试消息，再问「Winterfern 灯塔的标记是什么？」'
-        : '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
+        : '写给 Adrian…'));
     picker.replaceChildren(...room.models.map(model => new Option(model, model)));
     picker.value = room.model;
-    storeStatus('');
-    if (requestedNote !== null) await returnToNote();
+    renderContext(room);
+    const issue = issues.get(room.thread);
+    storeStatus(issue?.message || '', issue?.retry);
+    if (locateNote && requestedNote !== null) await returnToNote();
     else if (room.messages.length > 5 || chatService.persistent) requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
-  } catch {
-    room = null;
-    storeStatus('暂时读不到本机对话。请确认本地服务已启动。', loadRoom);
+    else log.scrollTop = 0;
+  } catch (error) {
+    if ((!select && !create) || selected || !room) {
+      room = null;
+      log.replaceChildren();
+      say.value = media = '';
+      setQuote(null, false);
+    }
+    const message = create && !select ? '未能确认新窗口，请从窗口列表查看。' : '暂时读不到这个聊天窗口。';
+    storeStatus(error.notice || message, select || !create ? () => loadRoom({ select, locateNote }) : null);
   } finally {
     log.setAttribute('aria-busy', 'false');
     setBusy(false);
@@ -604,10 +682,100 @@ function changeModel(value) {
   return writeChat(async () => {
     await chatService.selectModel(value);
     room.model = value;
-  }, '模拟模型的选择尚未确认。', () => changeModel(value));
+  }, '模型的选择尚未确认。', () => changeModel(value), true);
 }
-picker.onchange = () => changeModel(picker.value);
-$('options').onclick = () => openPanel($('settings'), $('options'));
+picker.onchange = () => {
+  say.focus({ preventScroll: true });
+  changeModel(picker.value);
+};
+
+const drawer = $('window-drawer');
+let listVersion = 0;
+async function showWindows() {
+  if (busy) return;
+  dismissPanel();
+  const list = $('window-list');
+  const version = ++listVersion;
+  list.textContent = '正在读取窗口…';
+  if (!drawer.open) drawer.showModal();
+  $('open-windows').setAttribute('aria-expanded', 'true');
+  try {
+    const windows = await chatService.windows();
+    if (version !== listVersion || !drawer.open) return;
+    list.replaceChildren(...windows.map(({ id, title }) => {
+      const button = control(title || '新窗口', () => loadRoom({ select: id }));
+      if (id === room?.thread) button.setAttribute('aria-current', 'true');
+      return button;
+    }));
+    if (!windows.length) list.textContent = '还没有已保存的窗口。';
+  } catch {
+    if (version === listVersion && drawer.open) list.replaceChildren(control('重新读取窗口', showWindows));
+  }
+}
+$('open-windows').onclick = showWindows;
+$('close-windows').onclick = () => drawer.close();
+drawer.addEventListener('close', () => $('open-windows').setAttribute('aria-expanded', 'false'));
+drawer.addEventListener('click', event => {
+  if (event.target !== drawer) return;
+  const bounds = drawer.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) drawer.close();
+});
+$('new-window').onclick = () => loadRoom({ create: true });
+
+const budget = $('context-budget');
+const cache = $('cache-mode');
+const tokenCount = count => Number.isFinite(count) ? count.toLocaleString('zh-CN') : '未回报';
+for (const limit of [1024, 4096, 8192, 16384, 32768]) budget.add(new Option(limit.toLocaleString('zh-CN'), limit));
+cache.add(new Option('自动', 'auto'));
+cache.add(new Option('按窗口复用', 'window'));
+function renderContext(state) {
+  budget.value = state.contextBudget;
+  cache.value = state.cacheMode;
+  if (!chatService.persistent) {
+    $('context-usage').textContent = '静态预览仅保存偏好。模拟回复不调用模型，也不计费。';
+    return;
+  }
+  const usage = state.usage;
+  if (!usage) {
+    $('context-usage').textContent = '这个窗口还没有用量记录。';
+    return;
+  }
+  const lines = [];
+  if (Number.isFinite(usage.estimatedInputTokens)) lines.push('估算输入 ' + tokenCount(usage.estimatedInputTokens) + ' tokens');
+  if (Number.isFinite(usage.inputTokens) || Number.isFinite(usage.outputTokens)) {
+    lines.push('接口回报 · 输入 ' + tokenCount(usage.inputTokens) + ' / 输出 ' + tokenCount(usage.outputTokens));
+  } else lines.push('接口尚未回报实际用量');
+  lines.push('缓存命中 ' + tokenCount(usage.cachedTokens));
+  const calls = usage.calls > 1 ? '（含 ' + usage.calls + ' 次模型调用）' : '';
+  $('context-usage').textContent = '最近一次回复' + calls + '\n' + lines.join('\n');
+}
+async function refreshUsage() {
+  const activeThread = room?.thread;
+  if (!activeThread || busy || !chatService.persistent) return;
+  try {
+    const latest = await chatService.room();
+    if (room?.thread !== activeThread || busy) return;
+    room.usage = latest.usage;
+    renderContext(room);
+  } catch {
+    if (room?.thread === activeThread) $('context-usage').textContent = '暂时读不到最新用量。';
+  }
+}
+function changeContext(settings) {
+  return writeChat(async () => {
+    await chatService.setContext(settings);
+    Object.assign(room, settings);
+  }, '窗口设置尚未保存。', () => changeContext(settings), true).finally(() => renderContext(room));
+}
+budget.onchange = cache.onchange = () => changeContext({ contextBudget: Number(budget.value), cacheMode: cache.value });
+$('context-settings').ontoggle = () => {
+  positionPanel();
+  if ($('context-settings').open) refreshUsage();
+};
+$('options').onclick = () => {
+  openPanel($('settings'), $('options'));
+  if ($('settings').open && $('context-settings').open) refreshUsage();
+};
 
 // Preserve the existing local wallpaper preference from the earlier static mock.
 const wallpaperKey = 'haven.chat.wallpaper';
@@ -666,7 +834,7 @@ vp?.addEventListener('scroll', fitViewport);
 say.addEventListener('blur', fitViewport);
 fitViewport();
 updateComposer();
-loadRoom();
+loadRoom({ locateNote: true });
 window.addEventListener('pageshow', event => {
   if (event.persisted && chatService.persistent && !busy) loadRoom();
 });

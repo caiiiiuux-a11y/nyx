@@ -80,7 +80,7 @@ function card(note) {
   if (link) actions.append(link);
   if (note.source) {
     const original = element('a', '', '回到原话');
-    original.href = '/chat/?note=' + encodeURIComponent(note.id);
+    original.href = '/chat/?' + new URLSearchParams({ thread: note.source.thread || 'window', note: note.id });
     actions.append(original);
   }
   const change = element('button', '', note.discussed ? '放回待聊' : '标为聊过');
