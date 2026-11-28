@@ -23,7 +23,7 @@ export function withFixtureMemory(complete, lab) {
           JSON.stringify({ excerpts: candidate, notice: request.archive.notice });
         const latest = { ...current, content };
         const withTools = [{ type: 'function', function: searchTool }];
-        if (estimatedUsage([messages[0], latest], withTools).estimatedInputTokens > request.contextBudget) break;
+        if (request.contextBudget > 0 && estimatedUsage([messages[0], latest], withTools).estimatedInputTokens > request.contextBudget) break;
         excerpts.push(candidate.at(-1));
         archiveHits.push(hit);
         messages[messages.length - 1] = latest;
@@ -31,7 +31,7 @@ export function withFixtureMemory(complete, lab) {
       if (!archiveHits.length) {
         const content = [current.content, '本机检索本次没有可引用的原话。', request.archive.notice].filter(Boolean).join('\n\n');
         const latest = { ...current, content };
-        if (estimatedUsage([messages[0], latest], [{ type: 'function', function: searchTool }]).estimatedInputTokens
+        if (request.contextBudget === 0 || estimatedUsage([messages[0], latest], [{ type: 'function', function: searchTool }]).estimatedInputTokens
             <= request.contextBudget) messages[messages.length - 1] = latest;
       }
     }

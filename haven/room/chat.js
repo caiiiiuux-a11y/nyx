@@ -750,6 +750,7 @@ const budget = $('context-budget');
 const cache = $('cache-mode');
 const defaultKey = $('default-window-key');
 for (const limit of [1024, 4096, 8192, 16384, 32768]) budget.add(new Option(limit.toLocaleString('zh-CN'), limit));
+budget.add(new Option('不限制', 0));
 cache.add(new Option('跟随线路', 'auto'));
 cache.add(new Option('发送窗口键', 'window'));
 cache.add(new Option('不发送窗口键', 'provider'));

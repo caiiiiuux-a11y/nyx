@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChatCompletions } from './chat-completions.mjs';
 import { withFixtureMemory } from './provider-turn.mjs';
-import { combineUsage } from './usage.mjs';
+import { combineUsage, ProviderContextError } from './usage.mjs';
 
 const model = 'iris-demo-a';
 const tool = { name: 'memory_search', parameters: { type: 'object', properties: { query: { type: 'string' } } } };
@@ -116,8 +116,16 @@ test('a two-call memory turn accounts for both receipts and keeps the same cache
     return eventStream([part, { choices: [], usage: receipt }, '[DONE]']);
   } });
   const turn = withFixtureMemory(transport, { callTool: async () => ({ bucketId: 'test', excerpt: '合成回执' }) });
-  const answer = await turn({ model, messages: [{ role: 'system', content: '合成材料' }, ...base.messages],
-    thread: 'sample-a', cacheMode: 'window', contextBudget: 1024 });
+  const history = { role: 'user', content: '长记录'.repeat(4000) };
+  const hit = { thread: 'other', messageId: 5, from: 'human', text: '合成检索摘录' };
+  const answer = await turn({ model, messages: [{ role: 'system', content: '合成材料' }, history,
+    { role: 'assistant', content: '好' }, ...base.messages], archive: { hits: [hit] },
+    thread: 'sample-a', cacheMode: 'window', contextBudget: 0 });
+  for (const request of sent) {
+    assert.deepEqual(request.messages[1], history);
+    assert.ok(request.messages[3].content.includes(hit.text));
+  }
+  assert.deepEqual(answer.archiveHits, [hit]);
   assert.equal(answer.usage.calls, 2);
   assert.equal(answer.usage.windowKeySent, true);
   assert.deepEqual([answer.usage.inputTokens, answer.usage.outputTokens, answer.usage.cachedTokens], [295, 19, 12]);
@@ -147,4 +155,17 @@ test('reports the HTTP status without exposing an upstream error body', async ()
     fetchImpl: async () => new Response('synthetic-private-detail', { status: 401 }) });
   await assert.rejects(complete(base), error =>
     error.message.includes('401') && !error.message.includes('synthetic-private-detail'));
+});
+
+test('provider length errors on HTTP or SSE use the same recoverable, sanitized error', async () => {
+  const responses = [
+    new Response(null, { status: 413 }),
+    Response.json({ error: { code: 'context_length_exceeded', message: 'private-fixture' } }, { status: 400 }),
+    Response.json({ error: { message: 'The input token count (9000) exceeds the maximum number of tokens allowed (8000).' } }, { status: 400 }),
+    eventStream([{ error: { code: 'context_length_exceeded' } }])
+  ];
+  for (const response of responses) {
+    const adapter = createChatCompletions({ baseURL: 'http://localhost', fetchImpl: async () => response });
+    await assert.rejects(adapter(base), ProviderContextError);
+  }
 });

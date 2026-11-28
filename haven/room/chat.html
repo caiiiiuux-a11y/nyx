@@ -14,7 +14,6 @@
 <body data-page="chat">
   <svg aria-hidden="true" class="icon-defs" xmlns="http://www.w3.org/2000/svg">
     <symbol id="i-windows" viewBox="0 0 24 24"><path d="M4 8h16M4 15h10"/></symbol>
-    <symbol id="i-model" viewBox="0 0 24 24"><path d="m14 2-10 12h7l-1 8 10-13h-7z"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/></g></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="3" width="13" height="15" rx="2"/><path d="M6 8H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2"/></symbol>
     <symbol id="i-quote" viewBox="0 0 24 24"><path d="M8 8 4 12l4 4m-4-4h9a6 6 0 0 1 6 6"/></symbol>
@@ -47,7 +46,7 @@
       <div class="input-shell">
         <button type="button" id="attach" class="input-action" aria-label="添加示例附件"><svg><use href="#i-plus"/></svg></button>
         <textarea id="say" rows="1" placeholder="写给 Adrian…" aria-label="写给 Adrian"></textarea>
-        <label class="model-chip"><svg aria-hidden="true"><use href="#i-model"/></svg><select id="model" aria-label="回复模型"></select></label>
+        <select id="model" aria-label="回复模型"></select>
         <button type="submit" id="send" class="input-action" aria-label="使用声音样例"><svg><use href="#i-mic"/></svg></button>
       </div>
     </form>

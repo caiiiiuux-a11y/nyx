@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { RECENT_TURN_LIMIT } from './model.mjs';
 
-const budgets = [1024, 4096, 8192, 16384, 32768];
+const budgets = [0, 1024, 4096, 8192, 16384, 32768];
 const defaultThread = 'window';
 const emptyTitle = '新对话';
 
@@ -44,9 +44,9 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
     if (!window) throw new RequestError(404, '找不到这个窗口');
     return window;
   }
-  function recent(thread, before = Number.MAX_SAFE_INTEGER) {
+  function recent(thread, before, contextBudget) {
     return db.prepare('SELECT * FROM turns WHERE thread=? AND id<? AND answer IS NOT NULL ORDER BY id DESC LIMIT ?')
-      .all(thread, before, RECENT_TURN_LIMIT).reverse().flatMap(messagesFromTurn);
+      .all(thread, before, contextBudget === 0 ? -1 : RECENT_TURN_LIMIT).reverse().flatMap(messagesFromTurn);
   }
   function create({ requestId = null } = {}) {
     if (requestId !== null && (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId))) {
@@ -74,10 +74,13 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
     }
     transaction(() => {
       db.prepare('UPDATE chat_windows SET context_budget=?,cache_mode=? WHERE id=?').run(contextBudget, cacheMode, window.id);
-      // A provider may discover an oversized tool exchange after the draft is stored.
-      // A higher budget unlocks that same turn even after the browser was closed.
-      db.prepare(`UPDATE turns SET budget_blocked=0,context_budget=?
-        WHERE thread=? AND budget_blocked=1 AND context_budget<?`).run(contextBudget, window.id, contextBudget);
+      // Local size failures can retry with more room. A provider length rejection
+      // needs less history instead. Zero means unlimited in either comparison.
+      db.prepare(`UPDATE turns SET budget_blocked=0,context_budget=:budget
+        WHERE thread=:thread AND context_budget!=:budget AND (
+          (budget_blocked=1 AND (:budget=0 OR (context_budget!=0 AND context_budget<:budget))) OR
+          (budget_blocked=2 AND :budget!=0 AND (context_budget=0 OR context_budget>:budget))
+        )`).run({ budget: contextBudget, thread: window.id });
     });
     return { thread: window.id, contextBudget, cacheMode };
   }

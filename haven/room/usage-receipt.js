@@ -13,13 +13,13 @@ export function usageReceipt(usage, offline) {
   const input = hasCount(inputTokens) ? inputTokens : estimatedInputTokens;
   const output = hasCount(outputTokens) ? outputTokens : estimatedOutputTokens;
   if (hasCount(total)) label = format.format(total) + ' tokens';
-  else if (hasCount(input) && hasCount(output)) label = '约 ' + format.format(input + output) + ' tokens';
-  else if (hasCount(input)) label = (hasCount(inputTokens) ? '输入 ' : '输入约 ') + format.format(input) + ' tokens';
-  else if (hasCount(output)) label = (hasCount(outputTokens) ? '输出 ' : '输出约 ') + format.format(output) + ' tokens';
+  else if (hasCount(input) && hasCount(output)) label = format.format(input + output) + ' tokens';
+  else if (hasCount(input)) label = '输入 ' + format.format(input) + ' tokens';
+  else if (hasCount(output)) label = '输出 ' + format.format(output) + ' tokens';
 
   function count(actual, estimate) {
     if (hasCount(actual)) return format.format(actual);
-    return hasCount(estimate) ? '约 ' + format.format(estimate) : '未回报';
+    return hasCount(estimate) ? format.format(estimate) + '（本地估算）' : '未回报';
   }
   const rows = [
     ['输入', count(inputTokens, estimatedInputTokens)], ['输出', count(outputTokens, estimatedOutputTokens)],

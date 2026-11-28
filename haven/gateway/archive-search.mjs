@@ -176,14 +176,15 @@ export function createArchiveSearch(db, { embedder, readMessages, readRelatedMes
     return scores;
   }
 
-  async function search({ query, thread = 'window', beforeId = Number.MAX_SAFE_INTEGER, limit = 3, excludeMessageIds = [] }, automatic) {
+  async function search({ query, thread = 'window', beforeId = Number.MAX_SAFE_INTEGER, limit = 3,
+    excludeMessageIds = [], excludeCurrentThread = false }, automatic) {
     if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new RangeError('请输入 1 至 1000 字的检索内容');
     if (!Number.isSafeInteger(beforeId) || beforeId < 1 || !Number.isInteger(limit) || limit < 1 || limit > 10) {
       throw new RangeError('检索范围有误');
     }
     const excluded = new Set(excludeMessageIds);
     const read = automatic
-      ? () => readRelatedMessages(beforeId).filter(m => m.id < beforeId && !excluded.has(m.id))
+      ? () => readRelatedMessages(beforeId, excludeCurrentThread ? thread : undefined).filter(m => m.id < beforeId && !excluded.has(m.id))
       : () => readMessages(thread, beforeId).filter(m => m.meta?.thread === thread && m.id < beforeId);
     const items = passages(read());
     // Only an exhaustive single-window read can prune that window's stale index entries.

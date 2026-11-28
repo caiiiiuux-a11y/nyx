@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { assets, models as mockModels } from '../room/catalog.mjs';
 import { archiveQuery, buildModelRequest, generateMockReply } from './model.mjs';
-import { combineUsage, estimatedUsage, fitHistory } from './usage.mjs';
+import { combineUsage, estimatedUsage, fitHistory, ProviderContextError } from './usage.mjs';
 import { createArchiveSearch } from './archive-search.mjs';
 import { createEvidenceStore } from './evidence.mjs';
 import { createPocketStore } from './pocket.mjs';
@@ -164,8 +164,12 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       const rows = db.prepare('SELECT * FROM turns WHERE thread=? AND id <= ? ORDER BY id').all(thread, Math.floor(beforeId / 2));
       return ordinaryMessages(rows, beforeId);
     },
-    readRelatedMessages(beforeId) {
-      const rows = db.prepare('SELECT * FROM turns WHERE answer IS NOT NULL AND id<=? ORDER BY id').all(Math.floor(beforeId / 2));
+    readRelatedMessages(beforeId, excludedThread) {
+      const through = Math.floor(beforeId / 2);
+      const query = 'SELECT * FROM turns WHERE answer IS NOT NULL AND id<=?';
+      const rows = excludedThread
+        ? db.prepare(query + ' AND thread!=? ORDER BY id').all(through, excludedThread)
+        : db.prepare(query + ' ORDER BY id').all(through);
       // Recalled quotations already have their own source; don't index the model echoing them again.
       return ordinaryMessages(rows, beforeId).filter(message => !(message.from === 'ai' && message.meta?.automaticRecall &&
         message.meta.sourceRefs?.some(source => source.excerpt?.trim() && message.text.includes(source.excerpt))));
@@ -190,7 +194,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       request = { ...labModelRequest(model, human), ...prefs, thread };
       request.messages = fitHistory(request.messages, prefs.contextBudget, request.tools);
     } else {
-      const prior = windows.recent(thread, turn.id);
+      const prior = windows.recent(thread, turn.id, prefs.contextBudget);
       request = buildModelRequest({ model, messages: [...prior, human], thread, ...prefs });
       const query = archiveQuery(human.text);
       if (query !== null) {
@@ -199,8 +203,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
           : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
       } else if (human.text.trim()) {
         const included = request.messages.length - 2;
-        const excludeMessageIds = prior.slice(prior.length - included).map(message => message.id);
-        const related = await archiveIndex.searchRelated({ query: human.text, thread, beforeId: human.id, excludeMessageIds });
+        const excludeCurrentThread = prefs.contextBudget === 0;
+        const excludeMessageIds = excludeCurrentThread ? [] : prior.slice(prior.length - included).map(message => message.id);
+        const related = await archiveIndex.searchRelated({ query: human.text, thread, beforeId: human.id, excludeMessageIds, excludeCurrentThread });
         if (related.hits.length) archive = related;
       }
       if (archive) request.archive = archive;
@@ -270,14 +275,16 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         });
       } catch (error) {
         if (!(error instanceof RangeError)) throw error;
-        db.prepare('UPDATE turns SET budget_blocked=1 WHERE id=?').run(turn.id);
-        if (turn.id === throughId) throw budgetError();
+        const reason = error instanceof ProviderContextError ? 2 : 1;
+        db.prepare('UPDATE turns SET budget_blocked=? WHERE id=?').run(reason, turn.id);
+        if (turn.id === throughId) throw budgetError(reason);
       }
     }
   }
 
-  function budgetError() {
-    return new RequestError(413, '这条消息超出了当前上下文预算，请缩短文字或提高预算后重试');
+  function budgetError(reason = 1) {
+    return new RequestError(413, reason === 2 ? new ProviderContextError().message :
+      '这条消息超出了当前上下文预算，请缩短文字或提高预算后重试');
   }
   async function history({ since = 0, limit, thread: selected } = {}) {
     const window = windows.get(selected);
@@ -339,7 +346,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     // Commit the human message before invoking the adapter, including on the first attempt.
     await inRoomOrder(() => finishPending(window.id, id));
     const turn = turnById(id);
-    if (turn.budget_blocked) throw budgetError();
+    if (turn.budget_blocked) throw budgetError(turn.budget_blocked);
     return { messages: messagesFromTurn(turn) };
   }
 
@@ -361,7 +368,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       }
       await finishPending(window.id, turn.id);
       const prior = turnById(turn.id);
-      if (prior.budget_blocked) throw budgetError();
+      if (prior.budget_blocked) throw budgetError(prior.budget_blocked);
       // A failed upstream call can be retried after restart or after settings change.
       if (!old) {
         db.prepare(`INSERT INTO regenerations(request_id,message_id,model,selected_model,cache_mode,answer)
@@ -372,7 +379,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         answer = await makeAnswer(prior, old?.selected_model ?? selected, JSON.parse(prior.answer),
           { contextBudget: window.contextBudget, cacheMode: old?.cache_mode ?? cacheMode });
       } catch (error) {
-        if (error instanceof RangeError) throw budgetError();
+        if (error instanceof RangeError) throw budgetError(error instanceof ProviderContextError ? 2 : 1);
         throw error;
       }
       const encoded = JSON.stringify(answer);

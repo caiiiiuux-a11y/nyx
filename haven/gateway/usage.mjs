@@ -61,6 +61,7 @@ export function combineUsage(first, second, beforeSecondMs) {
 
 // Drop only complete user/assistant pairs. Keep the current input and any tool exchange together.
 export function fitHistory(messages, budget, tools = []) {
+  if (budget === 0) return messages;
   const fitted = [...messages];
   while (estimatedUsage(fitted, tools).estimatedInputTokens > budget) {
     if (fitted.length < 4 || fitted[0].role !== 'system' || fitted[1].role !== 'user' ||
@@ -70,4 +71,10 @@ export function fitHistory(messages, budget, tools = []) {
     fitted.splice(1, 2);
   }
   return fitted;
+}
+
+export class ProviderContextError extends RangeError {
+  constructor() {
+    super('这次请求超出了模型线路可接收的长度。请降低本窗输入预算或缩短消息后重试。');
+  }
 }

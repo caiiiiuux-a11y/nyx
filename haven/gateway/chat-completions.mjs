@@ -1,11 +1,32 @@
 // Server-side adapter for the streaming Chat Completions wire format.
 // The Gateway owns the transcript, permissions, and execution of tool calls.
-import { averageSpeed, estimatedOutput, estimatedUsage, fitHistory, providerUsage } from './usage.mjs';
+import { averageSpeed, estimatedOutput, estimatedUsage, fitHistory, ProviderContextError, providerUsage } from './usage.mjs';
 
 const maxResponseBytes = 2 * 1024 * 1024;
 
 function invalidResponse() {
   return new Error('模型服务返回的内容不完整或格式不兼容');
+}
+
+function contextRejected(error) {
+  return ['context_length_exceeded', 'context_window_exceeded', 'input_too_long'].includes(error?.code) ||
+    (typeof error?.message === 'string' &&
+      /maximum context length|input token count.{0,50}exceeds the maximum|input is too long for (?:this|the) model/i.test(error.message));
+}
+
+async function rejectedForLength(response) {
+  if (response.status === 413) return true;
+  if (![400, 422].includes(response.status) || !response.headers.get('content-type')?.includes('json')) return false;
+  const chunks = [];
+  let size = 0;
+  try {
+    for await (const chunk of response.body) {
+      size += chunk.byteLength;
+      if (size > 16384) return false;
+      chunks.push(chunk);
+    }
+    return contextRejected(JSON.parse(Buffer.concat(chunks).toString('utf8')).error);
+  } catch { return false; }
 }
 
 function wireMessage(message) {
@@ -54,14 +75,17 @@ async function* eventData(body) {
   decoder.decode();
 }
 
-async function readCompletion(body, model, tools, usage, elapsed) {
+async function readCompletion(body, model, allowReportedAlias, tools, usage, elapsed) {
   let text = '';
+  let reportedModel = null;
   let call;
   let finish;
   for await (const data of eventData(body)) {
     usage.firstResponseMs ??= elapsed();
     if (data === '[DONE]') {
-      if (finish === 'stop' && !call && text.trim()) return { text };
+      if (finish === 'stop' && !call && text.trim()) {
+        return allowReportedAlias ? { text, reportedModel } : { text };
+      }
       if (finish !== 'tool_calls' || !call?.id.trim() || !tools.some(tool => tool.name === call.name)) {
         throw invalidResponse();
       }
@@ -71,7 +95,15 @@ async function readCompletion(body, model, tools, usage, elapsed) {
       return text ? { text, toolCall } : { toolCall };
     }
     const chunk = JSON.parse(data);
-    if (chunk.error || (chunk.model !== undefined && chunk.model !== model) || !Array.isArray(chunk.choices)) {
+    if (contextRejected(chunk.error)) throw new ProviderContextError();
+    if (chunk.model !== undefined) {
+      if (typeof chunk.model !== 'string' || !chunk.model.trim() || chunk.model.length > 512 ||
+          (reportedModel !== null && chunk.model !== reportedModel) || (!allowReportedAlias && chunk.model !== model)) {
+        throw invalidResponse();
+      }
+      reportedModel = chunk.model;
+    }
+    if (chunk.error || !Array.isArray(chunk.choices)) {
       throw invalidResponse();
     }
     // Providers may send a final usage-only chunk after the choice is finished.
@@ -107,21 +139,35 @@ async function readCompletion(body, model, tools, usage, elapsed) {
   throw invalidResponse();
 }
 
-export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch }) {
-  const endpoint = new URL(baseURL);
+export function chatCompletionsEndpoint(baseURL) {
+  const address = typeof baseURL === 'string' ? baseURL.trim() : '';
+  if (!/^https?:\/\//i.test(address) || /[\\?#\s]/u.test(address) || !URL.canParse(address)) {
+    throw new Error('模型服务地址无效');
+  }
+  const endpoint = new URL(address);
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname);
   if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
       !(endpoint.protocol === 'https:' || (endpoint.protocol === 'http:' && loopback))) {
     throw new Error('模型服务地址无效');
   }
-  endpoint.pathname = endpoint.pathname.replace(/\/+$/, '') + '/chat/completions';
-  return async function complete({ model, messages, tools = [], contextBudget = 8192, cacheMode = 'auto', thread = 'window' }) {
+  const path = endpoint.pathname.replace(/\/+$/, '');
+  endpoint.pathname = path.endsWith('/chat/completions') ? path : path + '/chat/completions';
+  return endpoint;
+}
+
+export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allowReportedAlias = false }) {
+  const endpoint = chatCompletionsEndpoint(baseURL);
+  return async function complete({ model, messages, tools = [], contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens }) {
     const definitions = tools.map(({ name, description, parameters }) => ({
       type: 'function', function: { name, description, parameters }
     }));
     const outgoing = fitHistory(messages.map(wireMessage), contextBudget, definitions);
     const usage = estimatedUsage(outgoing, definitions);
     const payload = { model, messages: outgoing, stream: true, stream_options: { include_usage: true } };
+    if (maxTokens !== undefined) {
+      if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) throw new RangeError('输出预算无效');
+      payload.max_tokens = maxTokens;
+    }
     if (definitions.length) payload.tools = definitions;
     if (cacheMode === 'window') payload.prompt_cache_key = 'haven-' + thread;
     usage.windowKeySent = Object.hasOwn(payload, 'prompt_cache_key');
@@ -133,11 +179,16 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch }) {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(60_000), headers, body: JSON.stringify(payload)
     }).catch(() => { throw new Error('连接模型服务失败'); });
     if (!response.ok || !response.body || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'text/event-stream') {
-      await response.body?.cancel();
+      const tooLong = await rejectedForLength(response);
+      if (!response.bodyUsed) await response.body?.cancel();
+      if (tooLong) throw new ProviderContextError();
       throw new Error('模型服务未返回可用的事件流（HTTP ' + response.status + '）');
     }
     // Neither a supplier error body nor a JSON parser error should reach the transcript.
-    const result = await readCompletion(response.body, model, tools, usage, elapsed).catch(() => { throw invalidResponse(); });
+    const result = await readCompletion(response.body, model, allowReportedAlias, tools, usage, elapsed).catch(error => {
+      if (error instanceof ProviderContextError) throw error;
+      throw invalidResponse();
+    });
     usage.durationMs = elapsed();
     usage.tokensPerSecond = averageSpeed(usage.outputTokens, usage.durationMs);
     usage.estimatedOutputTokens = estimatedOutput(result);

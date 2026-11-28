@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Gemini 试连 · Iris &amp; Adrian</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: clamp(24px, 8vw, 80px) 18px; background: #faf4ec; color: #574438; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 32rem; margin: auto; background: #fffcf7; border: 1px solid #e2d5c6; border-radius: 18px; padding: clamp(20px, 5vw, 36px); }
+    h1 { margin: 0; font: 600 26px/1.25 Georgia, serif; }
+    p { margin: .65rem 0; } #endpoint { color: #577280; font-size: .86rem; overflow-wrap: anywhere; }
+    label { display: block; margin-top: 1.25rem; font-weight: 600; }
+    input { display: block; width: 100%; margin: .4rem 0; background: white; padding: 10px 12px; border: 1px solid #c9b9a5; border-radius: 8px; font: inherit; }
+    input:focus { outline: none; } input:focus-visible { outline: 1px solid #927d66; }
+    blockquote { margin: .5rem 0 1rem; border-left: 2px solid #a4bec5; padding-left: 12px; }
+    small { color: #705f51; }
+    button { display: block; margin-top: 16px; padding: 10px 17px; border: none; border-radius: 10px; background: #436b7d; color: white; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .58; } #result { white-space: pre-wrap; overflow-wrap: anywhere; } #result:empty { margin: 0; }
+  </style>
+</head>
+<body><main>
+  <h1>Gemini 试连</h1>
+  <p id="endpoint"></p>
+  <p>这次只通过你的 OpenAI 兼容线路发送一句问候。</p>
+  <blockquote id="message"></blockquote>
+  <form id="trial-form" autocomplete="off">
+    <label for="key">线路 API Key</label>
+    <input id="key" type="password" autocomplete="off" spellcheck="false" required maxlength="2048" autocapitalize="none">
+    <small>密钥仅在本次操作中用于上方地址。</small>
+    <button id="load-models" type="button" disabled>读取 Gemini 模型</button>
+    <label for="model">模型 ID</label>
+    <input id="model" list="model-options" spellcheck="false" required maxlength="256" autocapitalize="none" placeholder="从列表选择，或输入线路上的模型 ID">
+    <datalist id="model-options"></datalist>
+    <button id="send" type="submit" disabled>发送一次问候</button>
+  </form>
+  <p role="status" id="result"></p>
+</main><script type="module" src="/form.js"></script></body>
+</html>

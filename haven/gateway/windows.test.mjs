@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { memoryLabExample } from '../room/memory-lab-example.mjs';
 import { openStore } from './store.mjs';
+import { ProviderContextError } from './usage.mjs';
 
 test('migrates the original window and reopens independent transcripts with only relevant cross-window excerpts', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'haven-windows-'));
@@ -36,6 +37,7 @@ test('migrates the original window and reopens independent transcripts with only
   const receipt = store.createWindow({ requestId: 'create' });
   const child = receipt.window.id;
   assert.deepEqual(store.createWindow({ requestId: 'create' }), receipt);
+  store.configureContext({ thread: child, contextBudget: 0, cacheMode: 'auto' });
   const blank = store.createWindow({}).window.id;
   store.selectModel({ thread: child, model: '云杉' });
   await store.regenerate({ id: 8, requestId: 'old-reroll' });
@@ -66,7 +68,8 @@ test('migrates the original window and reopens independent transcripts with only
   assert.equal(store.listWindows().windows.find(w => w.id === child).title, '绿色书签');
   const reopened = await store.history({ thread: child });
   assert.deepEqual(reopened.messages, [result.messages[0], reroll.message]);
-  assert.equal(reopened.contextBudget, 8192);
+  assert.equal(reopened.contextBudget, 0);
+  assert.equal((await store.history({ thread: blank })).contextBudget, 8192);
   assert.equal((await store.history()).contextBudget, 4096);
   assert.deepEqual(reopened.usage, reroll.message.meta.usage);
 });
@@ -85,10 +88,46 @@ test('an oversized message cannot prevent later turns or leak a pending turn int
   const { window } = store.createWindow({});
   assert.equal((await store.history({ thread: window.id })).messages.length, 0);
   await store.send({ requestId: 'next', text: '另一件事' });
-  store.configureContext({ contextBudget: 4096, cacheMode: 'auto' });
+  store.configureContext({ contextBudget: 0, cacheMode: 'auto' });
   const retry = await store.send(blocked);
   assert.equal(retry.messages[0].id, 1);
   assert.equal((await store.history()).messages.length, 4);
+});
+
+test('unlimited includes all completed turns before the reply, with recovery after a provider limit', async t => {
+  let request;
+  let rejectNext = false;
+  const store = openStore(':memory:', { embedder: false, complete(input) {
+    request = input;
+    if (rejectNext) { rejectNext = false; throw new ProviderContextError(); }
+    return { text: '合成回音' };
+  } });
+  t.after(() => store.close());
+  const configure = contextBudget => store.configureContext({ contextBudget, cacheMode: 'auto' });
+  assert.throws(() => configure(-1), { status: 400 });
+  configure(0);
+  const first = '长'.repeat(25000);
+  await store.send({ requestId: 'long', text: first });
+  for (let i = 0; i < 13; i++) await store.send({ requestId: 'short-' + i, text: '好' });
+  const target = await store.send({ requestId: 'target', text: '目标' });
+  assert.equal(request.messages.length, 30);
+  assert.equal(request.messages[1].content, first);
+  await store.send({ requestId: 'later', text: '稍后写的消息' });
+  await store.regenerate({ requestId: 'reroll', id: target.messages[1].id });
+  assert.equal(request.messages.length, 30);
+  assert.equal(request.messages.at(-1).content, '目标');
+  const pending = { requestId: 'oversize', text: '超出模型长度' };
+  rejectNext = true;
+  await assert.rejects(store.send(pending), { status: 413, message: /模型线路/ });
+  await store.send({ requestId: 'after-rejection', text: '好' });
+  assert.ok(!request.messages.some(message => message.content === pending.text));
+  configure(1024);
+  const recovered = await store.history();
+  assert.equal(request.contextBudget, 1024);
+  assert.equal(request.messages.at(-1).content, pending.text);
+  assert.ok(!request.messages.some(message => message.content === first));
+  assert.equal(recovered.messages.filter(message => message.text === pending.text).length, 1);
+  assert.deepEqual((await store.send(pending)).messages.map(message => message.text), [pending.text, '合成回音']);
 });
 
 test('a confirmed shared memory carries its excerpt across windows without opening the old transcript', async t => {

@@ -10,17 +10,23 @@
 
 Gateway 按顺序带上本窗最近对话，并用当前发言在这个小屋聊天库的已有原话中找相关片段，最多补两条。检索复用本机 BGE‑M3，结合文字匹配、来源窗口和消息编号。问候或没有足够线索时直接聊天。重新生成回复时只考虑当时以前的消息。点击回复头像旁的「⋯」可在当前页看摘录及检索方式。4191 的三条隔离记忆演示继续使用专用工具流程。
 
-「上下文与缓存」可调当前窗口的输入预算，默认 8,192 tokens。超限优先移走较早的完整轮次。此前对照过 Morrow 的会话历史读取与供应商提示缓存。[Morrow 历史读取](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L712) · [Morrow 缓存处理](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L1916)
+「上下文与缓存」可调当前窗口的输入预算，默认 8,192 tokens。有限预算优先移走较早的完整轮次；选择「不限制」会带上当前回复之前本窗已完成的全部轮次。模型仍有自己的输入上限，触及上限时可以调低预算重试。此前对照过 Morrow 的会话历史读取与供应商提示缓存。[Morrow 历史读取](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L712) · [Morrow 缓存处理](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L1916)
 
 ### 回复用量与线路缓存
 
-参照 Kelivo 的消息脚注和按线路配置缓存键，使用小屋现有组件实现。在 Adrian 回复右下角点 token 数可展开这一条的输入、输出、缓存命中、缓存写入和计时。总数优先取接口回报，缓存明细包含在相应输入里。本地估算标「约」，未回报与回报零分别显示。上游提供输出计数时可计算平均速度；费用需要金额与币种同时明确。工具往返合计到同一条回复。[Kelivo 消息用量](https://github.com/Chevey339/kelivo/blob/ae246a0976aabace07b6ee7dab5960803b01ad39/lib/features/chat/widgets/token_display_widget.dart#L272-L309)
+参照 Kelivo 的消息脚注和按线路配置缓存键，使用小屋现有组件实现。在 Adrian 回复右下角点 token 数可展开这一条的输入、输出、缓存命中、缓存写入和计时。总数优先取接口回报，缓存明细包含在相应输入里。回复脚注只显示数字和 tokens，点开后会标明哪些数字来自本地估算。未回报与回报零分别显示。上游提供输出计数时可计算平均速度；费用需要金额与币种同时明确。工具往返合计到同一条回复。[Kelivo 消息用量](https://github.com/Chevey339/kelivo/blob/ae246a0976aabace07b6ee7dab5960803b01ad39/lib/features/chat/widgets/token_display_widget.dart#L272-L309)
 
-4192 的 Chat Completions 线路支持窗口缓存键。线路默认关闭，本窗可选「跟随线路」「发送窗口键」或「不发送窗口键」。发送时保存决定，重试沿用。回复明细可核对实际请求是否带键；命中量以供应商回执为准。普通模拟线路隐藏该项。已用合成回执和手机视口核对，真实模型线路仍待确定。[Kelivo 缓存设置](https://github.com/Chevey339/kelivo/blob/ae246a0976aabace07b6ee7dab5960803b01ad39/lib/l10n/app_zh.arb#L1555-L1564) · [OpenAI 提示缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
+4192 的 Chat Completions 线路支持窗口缓存键。线路默认关闭，本窗可选「跟随线路」「发送窗口键」或「不发送窗口键」。发送时保存决定，重试沿用。回复明细可核对实际请求是否带键；命中量以供应商回执为准。普通模拟线路隐藏该项。已用合成回执和手机视口核对。真实线路的单次验证见下节。[Kelivo 缓存设置](https://github.com/Chevey339/kelivo/blob/ae246a0976aabace07b6ee7dab5960803b01ad39/lib/l10n/app_zh.arb#L1555-L1564) · [OpenAI 提示缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
 
 自动唤醒留作功能讨论。Kelivo 有按时间触发的任务，也有生成期间保持屏幕常亮的独立功能。小屋本轮只涉及聊天用量与缓存。[Kelivo 使用手册](https://kelivo.psycheas.top/guide)
 
 4192 用虚构的银戒指刻字进行手机验收。在另一个空窗问「上次商量给指环内壁刻哪几个字母？」，实际 BGE‑M3 混合检索找到原句，合成 API 从收到的摘录回显 LUMEN。换成货车轴数的问题时没有引用。重新选择旧窗和刷新均恢复各自消息。此预览使用试验聊天库，真实旧档尚待单独导入。
+
+### Vertex Gemini 本机试连
+
+2026-11-28，金金在本机通过自己的 OpenAI 兼容线路选择 `vertex_ai/gemini-3.8-flash`。试连固定发送「你好，请只回复一句简短的中文问候。」，截图显示回复「你好！很高兴见到你。」和接口回报的总用量 262 tokens。
+
+在开发目录运行 `npm run chat:api-trial-ui` 后打开[本机试连页](http://127.0.0.1:4193/)。地址由本机 `.haven-local/provider-trial.env` 的 `HAVEN_TRIAL_BASE_URL` 指定。页面支持从线路读取 Gemini 型号或手动填写模型 ID，密钥在发送问候后清空。试连独立于聊天存储和记忆工具。4192 的日常聊天预览仍使用合成模型，真实模型的多轮续聊和缓存命中待单独验收。
 
 ## Gateway · 模型 API 与续聊
 

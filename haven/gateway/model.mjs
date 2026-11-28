@@ -24,8 +24,9 @@ export function buildModelRequest({ model, messages, archive, contextBudget = 81
   if (current?.from !== 'human') throw new Error('Model context must end at the user message.');
   const input = modelMessage(current);
   const history = [];
-  let remaining = historyCharacterBudget - input.content.length;
-  for (let i = messages.length - 2; i >= 1 && history.length < RECENT_TURN_LIMIT; i -= 2) {
+  const limit = contextBudget === 0 ? Infinity : RECENT_TURN_LIMIT;
+  let remaining = contextBudget === 0 ? Infinity : historyCharacterBudget - input.content.length;
+  for (let i = messages.length - 2; i >= 1 && history.length < limit; i -= 2) {
     const human = messages[i - 1];
     const reply = messages[i];
     if (human.from !== 'human' || reply.from !== 'ai') break;
