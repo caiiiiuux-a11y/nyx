@@ -69,6 +69,9 @@ margin: 0; font: bold clamp(27px,6.2vw,37px)/1.1 var(--chat-serifs);
 .msg { width: 100%; display: flex; align-items: flex-start; gap: 7px; }
 .msg + .msg { margin-top: 10px; }
 .msg.me { justify-content: flex-end; }
+.msg.regenerating { display: none; }
+.stream-reply.waiting .words { color: #796c61; font-size: .875rem; }
+.stream-reply .bubble { padding-bottom: 8px; }
 .msg-content { min-width: 0; max-width: min(86%, 470px); }
 .msg.ai .msg-content { max-width: min(calc(100% - 40px), 475px); }
 .bubble {

@@ -169,3 +169,21 @@ test('provider length errors on HTTP or SSE use the same recoverable, sanitized 
     await assert.rejects(adapter(base), ProviderContextError);
   }
 });
+
+test('streaming withholds credentials split across deltas and flushes ordinary prefix text', async () => {
+  const key = 'sample-test-credential';
+  const streams = [
+    ['晴天。sam', 'ple-test-', 'credential'],
+    ['晚安 sa', 'mple', '！sa']
+  ];
+  const complete = createChatCompletions({ baseURL: 'http://localhost', apiKey: key,
+    fetchImpl: async () => eventStream([...streams.shift().map(content => choice({ content })), choice({}, 'stop'), '[DONE]']) });
+  const displayed = [];
+  const request = { ...base, onText: text => displayed.push(text) };
+  await assert.rejects(complete(request), /不完整|不兼容/);
+  assert.deepEqual(displayed, ['晴天。']);
+  displayed.length = 0;
+  const reply = await complete(request);
+  assert.equal(displayed.join(''), '晚安 sample！sa');
+  assert.equal(reply.text, displayed.join(''));
+});

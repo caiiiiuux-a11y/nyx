@@ -8,6 +8,66 @@ import { memoryLabExample } from '../room/memory-lab-example.mjs';
 import { openStore, RequestError } from './store.mjs';
 import { ProviderContextError } from './usage.mjs';
 
+test('live windows migrate the old Gemini route and keep duplicate model IDs tied to their supplier', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'haven-routes-'));
+  const file = join(directory, 'chat.sqlite');
+  const legacyModel = 'vertex_ai/gemini-3.8-flash';
+  const mock = 'iris-demo-a';
+  let store = openStore(file, { models: [mock, legacyModel], archiveRecall: false });
+  t.after(async () => {
+    store.close();
+    await rm(directory, { force: true, recursive: true });
+  });
+  store.selectModel({ model: legacyModel });
+  assert.equal(store.createWindow({ sourceThread: 'window' }).window.model, mock);
+  const legacy = await store.send({ model: legacyModel, text: '合成问候', requestId: 'legacy' });
+  store.close();
+
+  const catalogs = { mock: [mock], gemini: [legacyModel], first: ['shared'], second: ['shared'] };
+  const calls = [];
+  const options = { models: catalogs.mock, modelsForRoute: route => catalogs[route], supportsWindowKey: true,
+    archiveRecall: false, resumePendingOnRead: false, complete(request) {
+      calls.push(request.route);
+      if (calls.length === 1) throw new RequestError(503, '合成错误');
+      return { text: '合成问候' };
+    } };
+  store = openStore(file, options);
+  assert.equal(store.windowRoute(), 'gemini');
+  const [iris, adrian] = legacy.messages;
+  assert.deepEqual((await store.history()).messages, [{ ...iris, meta: { ...iris.meta, route: 'gemini' } }, adrian]);
+  assert.equal(store.createWindow({}).window.route, 'mock');
+  const inherited = store.createWindow({ sourceThread: 'window', requestId: 'new-from-chat' }).window;
+  assert.equal(inherited.route, 'gemini');
+  assert.equal(inherited.model, legacyModel);
+  assert.equal(store.createWindow({ sourceThread: 'window', requestId: 'new-from-chat' }).window.id, inherited.id);
+  assert.deepEqual((await store.history({ thread: inherited.id })).messages, []);
+  assert.throws(() => store.createWindow({ sourceThread: 'no-such-window' }), { status: 404 });
+  assert.deepEqual(calls, []);
+
+  store.selectModel({ route: 'first', model: 'shared' });
+  store.setDefaultWindowKey({ enabled: true, route: 'first' });
+  const original = { route: 'first', model: 'shared', text: '同名模型', requestId: 'pending' };
+  await assert.rejects(store.send(original), { status: 503 });
+  store.selectModel({ route: 'second', model: 'shared' });
+  assert.equal(store.defaultWindowKey(), false);
+  assert.throws(() => store.setDefaultWindowKey({ enabled: true, route: 'first' }), { status: 409 });
+  await assert.rejects(store.send(original), { status: 409 });
+  await assert.rejects(store.send({ ...original, route: 'second' }), { status: 409 });
+  const response = await store.send({ ...original, route: 'second', requestId: 'second' });
+  const reroll = { id: response.messages[1].id, route: 'second', model: 'shared', requestId: 'reroll-second' };
+  await store.regenerate(reroll);
+  assert.equal((await store.history()).messages[2].meta.retryRoute, 'first');
+  store.close();
+  store = openStore(file, options);
+  assert.equal(store.windowRoute(), 'second');
+  store.selectModel({ route: 'first', model: 'shared' });
+  assert.equal(store.defaultWindowKey(), true);
+  await assert.rejects(store.regenerate({ ...reroll, route: 'first' }), { status: 409 });
+  const retry = await store.send(original);
+  assert.equal(retry.messages[1].meta.route, 'first');
+  assert.deepEqual(calls, ['first', 'second', 'second', 'first']);
+});
+
 test('reopening live history or sending via mock never replays a failed paid request', async t => {
   const requests = [];
   let ready = false;

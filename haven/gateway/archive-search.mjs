@@ -6,6 +6,27 @@ const passageSize = 640;
 const overlap = 80;
 const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 const stopWords = new Set(['我们', '你们', '那个', '这个', '之前', '以前', '记得', '什么', '怎么', '时候', '一下', 'the', 'that', 'what', 'with']);
+const recallFillers = new Set(['刚才', '上次', '上回', '当时', '上个', '窗口', '提到', '以前', '哪个', '几个', '几页', '请问', '知道', '记住']);
+
+function isRecallQuestion(text) {
+  return /[?？]|记(?:得|不记得)|上(?:次|个窗口|回)|之前|以前|先前|当时|刚才|刚刚|曾经|提(?:过|到过)|哪[个一页里]|叫什么|还记|\b(?:remember|last time|earlier|previously)\b/iu.test(text);
+}
+
+// Rank factual material ahead of repeats of the question or an older non-answer.
+function hasEvidence(message) {
+  if (message.from === 'ai' && /(?:不(?:知道|记得|清楚|确定)|无法.{0,8}(?:确认|确定|查|知道|读取|访问)|没(?:有)?[^。！？!?\n]{0,24}(?:看到|找到|提过|提到|查到|记录|足够)|(?:上下文|记录).{0,10}(?:没有|未)|don't (?:know|remember|have access)|can't (?:find|recall))/iu.test(message.text)) return false;
+  if (message.from === 'ai' && message.meta?.sourceRefs?.length) return false;
+  return (message.text.match(/[^。！？!?\n]+[。！？!?]?/gu) ?? []).some(part => {
+    const clause = part.trim();
+    return clause.length > 1 && !/[?？]$/.test(clause) &&
+      !/^(?:请|只(?:回|写|答)|能不能|能否|你(?:知道|还?记得)|我想(?:知道|问)|what\b|do you\b)/iu.test(clause) &&
+      !/(?:是什么|叫什么|在[哪几]|第几|吗|么)[啊呀呢。\s]*$/u.test(clause);
+  });
+}
+
+function continuesThought(text) {
+  return /^(?:再|还(?:有|要)|另外|另外一|补充|并且|而且|它|她|他|这(?:个|一|枚|张|件|份|把)|那(?:个|一|枚|张|件|份|把)|also\b|and\b|it\b|this\b|that\b)/iu.test(text.trim());
+}
 
 // Only explicitly local inference is supported. Never forward chat excerpts on a redirect.
 export function createLocalEmbedder({
@@ -94,10 +115,11 @@ function normalize(text) {
   return text.normalize('NFKC').toLowerCase();
 }
 
-function lexicalQuery(query) {
+function lexicalQuery(query, conversation = false) {
   const normalized = normalize(query);
   const tokens = new Set([...segmenter.segment(normalized)]
-    .filter(({ segment, isWordLike }) => isWordLike && segment.length > 1 && !stopWords.has(segment))
+    .filter(({ segment, isWordLike }) => isWordLike && segment.length > 1 && !stopWords.has(segment) &&
+      (!conversation || !recallFillers.has(segment)))
     .map(({ segment }) => segment));
   return text => {
     const content = normalize(text);
@@ -177,16 +199,17 @@ export function createArchiveSearch(db, { embedder, readMessages, readRelatedMes
   }
 
   async function search({ query, thread = 'window', beforeId = Number.MAX_SAFE_INTEGER, limit = 3,
-    excludeMessageIds = [], excludeCurrentThread = false }, automatic) {
+    excludeMessageIds = [], excludeCurrentThread = false, route }, automatic) {
     if (typeof query !== 'string' || !query.trim() || query.length > 1000) throw new RangeError('请输入 1 至 1000 字的检索内容');
     if (!Number.isSafeInteger(beforeId) || beforeId < 1 || !Number.isInteger(limit) || limit < 1 || limit > 10) {
       throw new RangeError('检索范围有误');
     }
     const excluded = new Set(excludeMessageIds);
     const read = automatic
-      ? () => readRelatedMessages(beforeId, excludeCurrentThread ? thread : undefined).filter(m => m.id < beforeId && !excluded.has(m.id))
+      ? () => readRelatedMessages(beforeId, excludeCurrentThread ? thread : undefined, route).filter(m => m.id < beforeId && !excluded.has(m.id))
       : () => readMessages(thread, beforeId).filter(m => m.meta?.thread === thread && m.id < beforeId);
-    const items = passages(read());
+    const messages = read();
+    const items = passages(route ? messages.filter(hasEvidence) : messages);
     // Only an exhaustive single-window read can prune that window's stale index entries.
     if (!automatic) prune(thread, beforeId, items);
     if (!items.length) return { mode: 'empty', hits: [] };
@@ -198,16 +221,19 @@ export function createArchiveSearch(db, { embedder, readMessages, readRelatedMes
       // A model outage permits a literal-only result. Storage faults must be reported.
       if (error.code?.startsWith('ERR_SQLITE')) throw error;
     }
-    const lexical = lexicalQuery(query);
+    const lexical = lexicalQuery(query, Boolean(route));
+    const authors = new Map(messages.map(m => [m.id, m.from]));
     const candidates = [];
     for (const item of items) {
       const { exact, count, coverage } = lexical(item.text);
       const similarity = scores?.get(item) ?? 0;
-      const semanticMatch = scores && similarity >= (automatic ? 0.65 : 0.58);
-      const wordMatch = count >= 2 && coverage >= 0.75;
+      const semanticMatch = scores && similarity >= (route && !count ? 0.75 : automatic ? 0.65 : 0.58);
+      const wordMatch = route ? ((count >= 2 && coverage >= 0.35) || (count >= 1 && coverage === 1))
+        : count >= 2 && coverage >= 0.75;
       if (!(exact || semanticMatch || wordMatch)) continue;
       const weighted = scores ? similarity * 0.85 + coverage * 0.15 : coverage * 0.8;
-      candidates.push({ item, score: Math.min(1, exact ? Math.max(weighted, 0.85) : weighted) });
+      const rank = exact ? Math.max(weighted, 0.85) : weighted;
+      candidates.push({ item, score: Math.min(1, rank + (route && authors.get(item.messageId) === 'human' ? 0.08 : 0)) });
     }
     candidates.sort((a, b) => b.score - a.score || b.item.messageId - a.item.messageId || a.item.start - b.item.start);
     // Re-read the authoritative texts after asynchronous inference. A regeneration
@@ -226,6 +252,22 @@ export function createArchiveSearch(db, { embedder, readMessages, readRelatedMes
       if (!automatic && i + 1 < current.length) context.push(neighbor(current[i + 1], false));
       hits.push({ ...item, from: message.from, ts: message.ts, score, context });
       seen.add(item.messageId);
+      // A follow-up can describe "it" without repeating its name. Keep both
+      // immutable excerpts when adjacent user turns form one thought.
+      if (route && hits.length < limit && message.from === 'human') {
+        const turns = current.filter(m => m.meta.thread === item.thread && m.from === 'human');
+        const at = turns.findIndex(m => m.id === item.messageId);
+        const following = turns[at + 1];
+        const preceding = turns[at - 1];
+        const companion = continuesThought(message.text) && preceding && hasEvidence(preceding) ? preceding :
+          following && continuesThought(following.text) && hasEvidence(following) ? following : null;
+        if (companion && !seen.has(companion.id)) {
+          const end = boundary(companion.text, Math.min(companion.text.length, passageSize));
+          hits.push({ thread: item.thread, messageId: companion.id, from: companion.from, ts: companion.ts,
+            start: 0, end, text: companion.text.slice(0, end), score, context: [] });
+          seen.add(companion.id);
+        }
+      }
       if (hits.length === limit) break;
     }
     return { mode: scores ? 'hybrid' : 'lexical', hits,
@@ -237,9 +279,10 @@ export function createArchiveSearch(db, { embedder, readMessages, readRelatedMes
       const raw = options.query?.trim() || '';
       const query = raw.length > 1000 ? raw.slice(0, 499) + '…' + raw.slice(-500) : raw;
       // A greeting or bare acknowledgement carries too little evidence for a historical match.
-      if ([...query.replace(/[\p{P}\p{Z}\s]/gu, '')].length < 2 ||
+      if ((options.route && !options.explicit && !isRecallQuestion(query)) ||
+          [...query.replace(/[\p{P}\p{Z}\s]/gu, '')].length < 2 ||
           /^(你好|早上好|晚上好|晚安|谢谢|好的|嗯嗯|好吧|知道了|继续|是吗|为什么|然后呢|hello|okay|thank you)[呀啊哦呢啦～~！!。.？?\s]*$/iu.test(query)) {
-        return { automatic: true, mode: 'empty', hits: [] };
+        return { automatic: true, skipped: true, mode: 'empty', hits: [] };
       }
       return { ...await search({ ...options, query, limit: 2 }, true), automatic: true };
     }

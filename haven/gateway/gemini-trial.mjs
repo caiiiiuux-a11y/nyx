@@ -16,37 +16,56 @@ function isModelId(id) {
   return typeof id === 'string' && /^[\p{L}\p{N}][\p{L}\p{N}._/:@+-]{0,255}$/u.test(id) && !id.includes('://');
 }
 
-export async function listTrialModels({ baseURL, apiKey }, { fetchImpl = fetch } = {}) {
-  const key = trialKey(apiKey);
+// OpenAI-compatible gateways use their own ID namespaces. Model IDs are data
+// in a JSON field, including any provider prefixes and display punctuation.
+function catalogId(id) {
+  return typeof id === 'string' && id.trim() === id && id.length > 0 && id.length <= 512 &&
+    !/[\u0000-\u001f\u007f-\u009f]/u.test(id);
+}
+
+export async function listProviderModels({ baseURL, apiKey }, { fetchImpl = fetch } = {}) {
+  const key = apiKey ? trialKey(apiKey) : null;
   const endpoint = new URL(normalizeTrialEndpoint(baseURL));
   endpoint.pathname = endpoint.pathname.replace(/\/chat\/completions$/, '/models');
-  const response = await fetchImpl(endpoint, {
-    method: 'GET', redirect: 'error', signal: AbortSignal.timeout(20_000),
-    headers: { Accept: 'application/json', Authorization: 'Bearer ' + key }
-  }).catch(() => { throw new Error('连接模型目录失败'); });
-  if (!response.ok || !response.body) {
-    await response.body?.cancel();
-    throw new Error('无法读取模型目录（HTTP ' + response.status + '）');
-  }
-  const chunks = [];
-  let size = 0;
-  let entries;
-  try {
-    for await (const chunk of response.body) {
-      size += chunk.byteLength;
-      if (size > 2 * 1024 * 1024) throw new Error();
-      chunks.push(chunk);
-    }
-    entries = JSON.parse(Buffer.concat(chunks).toString('utf8')).data;
-    if (!Array.isArray(entries)) throw new Error();
-  } catch { throw new Error('模型目录过大或格式不兼容'); }
+  const signal = AbortSignal.timeout(20_000);
+  const headers = { Accept: 'application/json' };
+  if (key) headers.Authorization = 'Bearer ' + key;
   const ids = new Set();
-  for (const item of entries) {
-    const id = item?.id;
-    if (isModelId(id) && /gemini/i.test(id) && !id.includes(key)) ids.add(id);
-    if (ids.size === 100) break;
+  const cursors = new Set();
+  let size = 0;
+  for (;;) {
+    const response = await fetchImpl(endpoint, { method: 'GET', redirect: 'error', signal, headers })
+      .catch(() => { throw new Error('连接模型目录失败'); });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new Error('无法读取模型目录（HTTP ' + response.status + '）');
+    }
+    const chunks = [];
+    let page;
+    try {
+      for await (const chunk of response.body) {
+        size += chunk.byteLength;
+        if (size > 16 * 1024 * 1024) throw new Error();
+        chunks.push(chunk);
+      }
+      page = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!Array.isArray(page.data)) throw new Error();
+    } catch { throw new Error('模型目录过大或格式不兼容'); }
+    for (const entry of page.data) {
+      const id = entry?.id;
+      if (catalogId(id) && !(key && (id === key || (key.length >= 8 && id.includes(key))))) ids.add(id);
+    }
+    if (page.has_more !== true) return [...ids];
+    const cursor = page.last_id ?? page.data.at(-1)?.id;
+    if (!catalogId(cursor) || cursors.has(cursor)) throw new Error('模型目录分页无效');
+    cursors.add(cursor);
+    endpoint.searchParams.set('after', cursor);
   }
-  return [...ids];
+}
+
+export async function listTrialModels({ baseURL, apiKey }, transport) {
+  const models = await listProviderModels({ baseURL, apiKey: trialKey(apiKey) }, transport);
+  return models.filter(id => /gemini/i.test(id));
 }
 
 // This entry point has no transcript, memory tools, or persistent storage.

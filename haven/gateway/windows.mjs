@@ -10,33 +10,42 @@ function draftTitle(draft) {
   return [...text].slice(0, 30).join('') || (draft.media ? '附件对话' : emptyTitle);
 }
 
-export function createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey }) {
+export function createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute }) {
   transaction(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS chat_windows (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
       model TEXT NOT NULL, context_budget INTEGER NOT NULL DEFAULT 8192, cache_mode TEXT NOT NULL DEFAULT 'auto',
       request_id TEXT UNIQUE, last_answer_id INTEGER
     )`);
-    if (!db.prepare('PRAGMA table_info(chat_windows)').all().some(row => row.name === 'last_answer_id')) {
+    const windowColumns = new Set(db.prepare('PRAGMA table_info(chat_windows)').all().map(row => row.name));
+    if (!windowColumns.has('last_answer_id')) {
       db.exec('ALTER TABLE chat_windows ADD COLUMN last_answer_id INTEGER');
     }
+    if (!windowColumns.has('route')) db.exec('ALTER TABLE chat_windows ADD COLUMN route TEXT');
     const columns = new Set(db.prepare('PRAGMA table_info(turns)').all().map(row => row.name));
     if (!columns.has('thread')) db.exec("ALTER TABLE turns ADD COLUMN thread TEXT NOT NULL DEFAULT 'window'");
     if (!columns.has('context_budget')) db.exec('ALTER TABLE turns ADD COLUMN context_budget INTEGER NOT NULL DEFAULT 8192');
     if (!columns.has('cache_mode')) db.exec("ALTER TABLE turns ADD COLUMN cache_mode TEXT NOT NULL DEFAULT 'auto'");
     if (!columns.has('budget_blocked')) db.exec('ALTER TABLE turns ADD COLUMN budget_blocked INTEGER NOT NULL DEFAULT 0');
+    if (!columns.has('route')) db.exec('ALTER TABLE turns ADD COLUMN route TEXT');
+    if (defaultRoute) {
+      // The previous live lab offered exactly one local model and one Gemini model.
+      for (const table of ['chat_windows', 'turns']) {
+        db.exec(`UPDATE ${table} SET route=CASE WHEN model='iris-demo-a' THEN 'mock' ELSE 'gemini' END WHERE route IS NULL`);
+      }
+    }
     db.exec('CREATE INDEX IF NOT EXISTS turns_by_window ON turns(thread,id)');
     if (db.prepare('SELECT 1 FROM chat_windows WHERE id=?').get(defaultThread)) return;
     const first = db.prepare('SELECT draft,created FROM turns WHERE thread=? ORDER BY id LIMIT 1').get(defaultThread);
     const last = db.prepare('SELECT created FROM turns WHERE thread=? ORDER BY id DESC LIMIT 1').get(defaultThread);
     const model = db.prepare("SELECT value FROM settings WHERE name='model'").get()?.value;
     const now = new Date().toISOString();
-    db.prepare('INSERT INTO chat_windows(id,title,created,updated,model) VALUES(?,?,?,?,?)')
+    db.prepare('INSERT INTO chat_windows(id,title,created,updated,model,route) VALUES(?,?,?,?,?,?)')
       .run(defaultThread, first ? draftTitle(JSON.parse(first.draft)) : emptyTitle,
-        first?.created ?? now, last?.created ?? now, models.includes(model) ? model : models[0]);
+        first?.created ?? now, last?.created ?? now, models.includes(model) ? model : models[0], defaultRoute);
   });
 
-  const fields = 'id,title,created,updated,model,context_budget AS contextBudget,cache_mode AS cacheMode';
+  const fields = 'id,title,created,updated,model,context_budget AS contextBudget,cache_mode AS cacheMode' + (defaultRoute ? ',route' : '');
   const byId = db.prepare('SELECT ' + fields + ' FROM chat_windows WHERE id=?');
   function get(id = defaultThread) {
     if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new RequestError(400, '窗口编号无效');
@@ -44,23 +53,27 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
     if (!window) throw new RequestError(404, '找不到这个窗口');
     return window;
   }
-  function recent(thread, before, contextBudget) {
-    return db.prepare('SELECT * FROM turns WHERE thread=? AND id<? AND answer IS NOT NULL ORDER BY id DESC LIMIT ?')
-      .all(thread, before, contextBudget === 0 ? -1 : RECENT_TURN_LIMIT).reverse().flatMap(messagesFromTurn);
+  function recent(thread, before, contextBudget, route) {
+    const where = 'SELECT * FROM turns WHERE thread=? AND id<? AND answer IS NOT NULL';
+    const scoped = route ? " AND route=? AND COALESCE(json_extract(answer,'$.meta.route'),json_extract(answer,'$.meta.provider'),route)=?" : '';
+    return db.prepare(where + scoped + ' ORDER BY id DESC LIMIT ?')
+      .all(thread, before, ...(route ? [route, route] : []), contextBudget === 0 ? -1 : RECENT_TURN_LIMIT)
+      .reverse().flatMap(messagesFromTurn);
   }
-  function create({ requestId = null } = {}) {
+  function create({ requestId = null, sourceThread } = {}) {
     if (requestId !== null && (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId))) {
       throw new RequestError(400, '新窗口请求编号无效');
     }
     return transaction(() => {
+      const source = defaultRoute && sourceThread !== undefined ? get(sourceThread) : null;
       if (requestId) {
         const existing = db.prepare('SELECT id FROM chat_windows WHERE request_id=?').get(requestId);
         if (existing) return { window: get(existing.id) };
       }
       const id = randomUUID();
       const now = new Date().toISOString();
-      db.prepare('INSERT INTO chat_windows(id,title,created,updated,model,request_id) VALUES(?,?,?,?,?,?)')
-        .run(id, emptyTitle, now, now, models[0], requestId);
+      db.prepare('INSERT INTO chat_windows(id,title,created,updated,model,request_id,route) VALUES(?,?,?,?,?,?,?)')
+        .run(id, emptyTitle, now, now, source?.model ?? models[0], requestId, source?.route ?? defaultRoute);
       return { window: get(id) };
     });
   }
@@ -84,20 +97,27 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
     });
     return { thread: window.id, contextBudget, cacheMode };
   }
-  const cacheSetting = provider + '.prompt_cache_key';
-  function defaultWindowKey() {
-    return supportsWindowKey && db.prepare('SELECT value FROM settings WHERE name=?').get(cacheSetting)?.value === '1';
+  function cacheSetting(route) {
+    // Gemini was the only external provider using the original live-lab preference.
+    return (route && route !== 'gemini' ? provider + '.' + route : provider) + '.prompt_cache_key';
   }
-  function setDefaultWindowKey({ enabled }) {
-    if (!supportsWindowKey) throw new RequestError(404, '这条线路没有会话缓存键设置');
+  function defaultWindowKey(route) {
+    return supportsWindowKey && route !== 'mock' &&
+      db.prepare('SELECT value FROM settings WHERE name=?').get(cacheSetting(route))?.value === '1';
+  }
+  function setDefaultWindowKey({ enabled, thread, route: expected }) {
+    const route = defaultRoute ? get(thread).route : null;
+    if (expected !== undefined && expected !== route && defaultRoute) throw new RequestError(409, '窗口线路已改变');
+    if (!supportsWindowKey || route === 'mock') throw new RequestError(404, '这条线路没有会话缓存键设置');
     if (typeof enabled !== 'boolean') throw new RequestError(400, '请选择是否发送会话缓存键');
     db.prepare('INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value')
-      .run(cacheSetting, enabled ? '1' : '0');
+      .run(cacheSetting(route), enabled ? '1' : '0');
     return { defaultWindowKey: enabled };
   }
   // Persist the wire decision. Old turns with "auto" already meant omission on the wire.
-  function requestCacheMode(mode) {
-    return supportsWindowKey && (mode === 'window' || (mode === 'auto' && defaultWindowKey())) ? 'window' : 'auto';
+  function requestCacheMode(window) {
+    return supportsWindowKey && window.route !== 'mock' &&
+      (window.cacheMode === 'window' || (window.cacheMode === 'auto' && defaultWindowKey(window.route))) ? 'window' : 'auto';
   }
   function recordTurn(window, draft, now) {
     const first = !db.prepare('SELECT 1 FROM turns WHERE thread=? LIMIT 1').get(window.id);

@@ -52,7 +52,7 @@ function humanMessage(turn) {
   const draft = JSON.parse(turn.draft);
   return {
     id: turn.id * 2 - 1, from: 'human', text: draft.text, ts: turn.created,
-    meta: { thread: turn.thread, attachments: draft.media ? [assets[draft.media]] : [], quote: draft.quote }
+    meta: { thread: turn.thread, ...(turn.route && { route: turn.route }), attachments: draft.media ? [assets[draft.media]] : [], quote: draft.quote }
   };
 }
 
@@ -77,7 +77,7 @@ function messagesFromTurn(turn) {
 
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
-export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels,
+export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels, modelsForRoute,
   provider = 'mock', supportsWindowKey = false, archiveRecall = true, resumePendingOnRead = true } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
@@ -92,11 +92,18 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       request_id TEXT PRIMARY KEY, message_id INTEGER NOT NULL, model TEXT, answer TEXT NOT NULL
     );
   `);
-  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey });
+  const defaultRoute = modelsForRoute ? 'mock' : null;
+  const availableModels = route => modelsForRoute ? modelsForRoute(route) : models;
+  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute });
   transaction(() => {
     const columns = new Set(db.prepare('PRAGMA table_info(regenerations)').all().map(row => row.name));
     if (!columns.has('cache_mode')) db.exec('ALTER TABLE regenerations ADD COLUMN cache_mode TEXT');
     if (!columns.has('selected_model')) db.exec('ALTER TABLE regenerations ADD COLUMN selected_model TEXT');
+    if (!columns.has('route')) db.exec('ALTER TABLE regenerations ADD COLUMN route TEXT');
+    if (modelsForRoute) {
+      db.exec(`UPDATE regenerations SET route=CASE WHEN COALESCE(selected_model, model)='iris-demo-a' THEN 'mock' ELSE 'gemini' END
+        WHERE route IS NULL`);
+    }
   });
   const turnById = id => db.prepare('SELECT * FROM turns WHERE id=?').get(id);
   let queue = Promise.resolve();
@@ -164,12 +171,16 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       const rows = db.prepare('SELECT * FROM turns WHERE thread=? AND id <= ? ORDER BY id').all(thread, Math.floor(beforeId / 2));
       return ordinaryMessages(rows, beforeId);
     },
-    readRelatedMessages(beforeId, excludedThread) {
+    readRelatedMessages(beforeId, excludedThread, route) {
       const through = Math.floor(beforeId / 2);
-      const query = 'SELECT * FROM turns WHERE answer IS NOT NULL AND id<=?';
-      const rows = excludedThread
-        ? db.prepare(query + ' AND thread!=? ORDER BY id').all(through, excludedThread)
-        : db.prepare(query + ' ORDER BY id').all(through);
+      let query = 'SELECT * FROM turns WHERE answer IS NOT NULL AND id<=?';
+      const params = [through];
+      if (route) {
+        query += " AND route=? AND COALESCE(json_extract(answer,'$.meta.route'),json_extract(answer,'$.meta.provider'),route)=?";
+        params.push(route, route);
+      }
+      if (excludedThread) { query += ' AND thread!=?'; params.push(excludedThread); }
+      const rows = db.prepare(query + ' ORDER BY id').all(...params);
       // Recalled quotations already have their own source; don't index the model echoing them again.
       return ordinaryMessages(rows, beforeId).filter(message => !(message.from === 'ai' && message.meta?.automaticRecall &&
         message.meta.sourceRefs?.some(source => source.excerpt?.trim() && message.text.includes(source.excerpt))));
@@ -186,8 +197,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     return archiveIndex.search({ query: query.trim(), limit, thread, beforeId });
   }
 
-  async function makeAnswer(turn, model, previousAnswer, prefs = { contextBudget: turn.context_budget, cacheMode: turn.cache_mode }) {
+  async function makeAnswer(turn, model, onText, previousAnswer, prefs = { contextBudget: turn.context_budget, cacheMode: turn.cache_mode }) {
     const thread = turn.thread;
+    const route = modelsForRoute ? prefs.route ?? turn.route : null;
     const human = humanMessage(turn);
     let archive;
     let request;
@@ -195,23 +207,35 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       request = { ...labModelRequest(model, human), ...prefs, thread };
       request.messages = fitHistory(request.messages, prefs.contextBudget, request.tools);
     } else {
-      const prior = windows.recent(thread, turn.id, prefs.contextBudget);
+      const prior = windows.recent(thread, turn.id, prefs.contextBudget, route);
+      // Older live versions allowed quoting messages written on another route.
+      // Preserve the saved transcript; omit those quotations from outgoing context.
+      if (route) {
+        for (const message of [...prior, human]) {
+          const quote = message.meta.quote;
+          if (!quote) continue;
+          const original = readMessage(quote.id);
+          if ((original?.meta.route ?? original?.meta.provider) !== route) message.meta.quote = null;
+        }
+      }
       request = buildModelRequest({ model, messages: [...prior, human], thread, ...prefs });
       const query = archiveIndex ? archiveQuery(human.text) : null;
-      if (query !== null) {
+      if (query !== null && !route) {
         archive = query.length > 0 && query.length <= 1000
           ? await searchArchive({ query, thread }, human.id)
           : { hits: [], notice: '试试「查旧聊天：当时你想找的事情」。线索最多 1000 字。' };
-      } else if (archiveIndex && human.text.trim()) {
+      } else if (archiveIndex && human.text.trim() && route !== 'mock') {
         const included = request.messages.length - 2;
         const excludeCurrentThread = prefs.contextBudget === 0;
         const excludeMessageIds = excludeCurrentThread ? [] : prior.slice(prior.length - included).map(message => message.id);
-        const related = await archiveIndex.searchRelated({ query: human.text, thread, beforeId: human.id, excludeMessageIds, excludeCurrentThread });
-        if (related.hits.length) archive = related;
+        const related = await archiveIndex.searchRelated({ query: query || human.text, thread, route, explicit: query !== null,
+          beforeId: human.id, excludeMessageIds, excludeCurrentThread });
+        if (related.hits.length || (route && !related.skipped)) archive = related;
       }
       if (archive) request.archive = archive;
     }
-    const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text };
+    if (modelsForRoute) request.route = prefs.route ?? turn.route;
+    const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text, onText };
     let result;
     let usage;
     let memoryTool;
@@ -254,26 +278,27 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       ts: previousAnswer?.ts ?? new Date().toISOString(),
       meta: {
         speaker: 'Adrian', provider: result.provider ?? provider, model, thread, fallback: false, attachments: [],
+        ...(request.route && { route: request.route }),
         ...(result.reportedModel && { reportedModel: result.reportedModel }),
         usage,
         ...(memoryTool && { memoryTool }),
         ...(memorySources?.length && { sourceRefs: memorySources }),
         ...(archiveHits?.length && { archiveMode: archive.mode, automaticRecall: Boolean(archive.automatic) }),
-        ...(archiveHits?.length && { sourceRefs: archiveHits.map(({ thread, messageId, start, end, text }) => ({
-          thread, messageId, start, end, excerpt: text
+        ...(archiveHits?.length && { sourceRefs: archiveHits.map(({ thread, messageId, start, end, text, from }) => ({
+          thread, messageId, start, end, excerpt: text, ...(from && { from })
         })) })
       }
     };
   }
 
-  async function finishPending(thread, throughId) {
+  async function finishPending(thread, throughId, onText) {
     // An explicit-only provider retries just the selected turn, even after a route change.
     const idCondition = resumePendingOnRead ? 'id <= ?' : 'id = ?';
     const pending = db.prepare('SELECT * FROM turns WHERE thread=? AND answer IS NULL AND budget_blocked=0 AND ' + idCondition + ' ORDER BY id');
     const save = db.prepare('UPDATE turns SET answer=? WHERE id=? AND answer IS NULL');
     for (const turn of pending.all(thread, throughId)) {
       try {
-        const answer = await makeAnswer(turn, turn.model);
+        const answer = await makeAnswer(turn, turn.model, turn.id === throughId ? onText : undefined);
         transaction(() => {
           if (save.run(JSON.stringify(answer), turn.id).changes) windows.recordAnswer(thread, turn.id);
         });
@@ -313,28 +338,37 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         // Reuse exactly the original payload when a user retries after reopening the page.
         entries[0].meta.retryRequestId = turn.request_id;
         entries[0].meta.retryModel = JSON.parse(turn.draft).model;
+        if (turn.route) entries[0].meta.retryRoute = turn.route;
       }
       return entries;
     }).filter(m => m.id > since);
-    return { messages: limit == null ? messages : messages.slice(0, limit), thread, model: window.model, models,
+    return { messages: limit == null ? messages : messages.slice(0, limit), thread, model: window.model,
+      ...(window.route && { route: window.route }), models: availableModels(window.route),
       contextBudget: window.contextBudget, cacheMode: window.cacheMode,
-      cacheCapabilities: { windowKey: supportsWindowKey }, defaultWindowKey: windows.defaultWindowKey(),
+      cacheCapabilities: { windowKey: supportsWindowKey && window.route !== 'mock' }, defaultWindowKey: windows.defaultWindowKey(window.route),
       usage: windows.latestUsage(thread) };
   }
 
-  async function send(input) {
+  async function send(input, onText) {
     const window = windows.get(input.thread);
     const key = checkedRequestId(input.requestId);
-    const draft = checkedDraft(input, models);
+    if (modelsForRoute && input.route !== undefined && input.route !== window.route) throw new RequestError(409, '本窗口的线路已经改变');
+    const draft = checkedDraft(input, availableModels(window.route));
     const encoded = JSON.stringify(draft);
     const id = transaction(() => {
-      const existing = db.prepare('SELECT id,thread,draft,budget_blocked FROM turns WHERE request_id=?').get(key);
+      const existing = db.prepare('SELECT id,thread,route,draft,budget_blocked FROM turns WHERE request_id=?').get(key);
       if (existing) {
-        if (existing.thread !== window.id || existing.draft !== encoded) throw new RequestError(409, '发送编号已用于不同的消息');
+        if (existing.thread !== window.id || existing.draft !== encoded || (modelsForRoute && existing.route !== window.route)) {
+          throw new RequestError(409, '发送编号已用于不同的消息或线路');
+        }
         if (!existing.budget_blocked) return existing.id;
       }
-      if (draft.quote && readMessage(draft.quote.id)?.meta.thread !== window.id) {
-        throw new RequestError(400, '请选择当前窗口中的引用');
+      if (draft.quote) {
+        const source = readMessage(draft.quote.id);
+        if (source?.meta.thread !== window.id) throw new RequestError(400, '请选择当前窗口中的引用');
+        if (modelsForRoute && (source.meta.route ?? source.meta.provider) !== window.route) {
+          throw new RequestError(409, '引用这条消息前，请切回它原来的线路。');
+        }
       }
       const now = new Date().toISOString();
       const model = draft.model ?? window.model;
@@ -351,31 +385,35 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         return existing.id;
       }
       windows.recordTurn(window, draft, now);
-      const result = db.prepare('INSERT INTO turns(thread,request_id,draft,model,created,context_budget,cache_mode) VALUES(?,?,?,?,?,?,?)')
-        .run(window.id, key, encoded, model, now, window.contextBudget, windows.requestCacheMode(window.cacheMode));
+      const result = db.prepare('INSERT INTO turns(thread,request_id,draft,model,created,context_budget,cache_mode,route) VALUES(?,?,?,?,?,?,?,?)')
+        .run(window.id, key, encoded, model, now, window.contextBudget, windows.requestCacheMode(window), window.route ?? null);
       return Number(result.lastInsertRowid);
     });
     // Commit the human message before invoking the adapter, including on the first attempt.
-    await inRoomOrder(() => finishPending(window.id, id));
+    await inRoomOrder(() => finishPending(window.id, id, onText));
     const turn = turnById(id);
     if (turn.budget_blocked) throw budgetError(turn.budget_blocked);
     return { messages: messagesFromTurn(turn) };
   }
 
-  async function regenerate(input) {
+  async function regenerate(input, onText) {
     const window = windows.get(input.thread);
     const key = checkedRequestId(input.requestId);
     const { id } = input;
     if (!Number.isSafeInteger(id) || id < 2 || id % 2) throw new RequestError(400, '请选择 Adrian 的回复');
-    const model = input.model == null ? null : checkedModel(input.model, models);
+    if (modelsForRoute && input.route !== undefined && input.route !== window.route) throw new RequestError(409, '本窗口的线路已经改变');
+    const model = input.model == null ? null : checkedModel(input.model, availableModels(window.route));
     const selected = model ?? window.model;
-    const cacheMode = windows.requestCacheMode(window.cacheMode);
+    const cacheMode = windows.requestCacheMode(window);
     return inRoomOrder(async () => {
       const turn = turnById(id / 2);
       if (!turn || turn.thread !== window.id) throw new RequestError(404, '找不到这条回复');
+      if (modelsForRoute && turn.route !== window.route) throw new RequestError(409, '重新生成前，请切回这条消息原来的线路。');
       const old = db.prepare('SELECT * FROM regenerations WHERE request_id=?').get(key);
       if (old) {
-        if (old.message_id !== id || old.model !== model) throw new RequestError(409, '重试编号已用于不同的回复');
+        if (old.message_id !== id || old.model !== model || (modelsForRoute && old.route !== window.route)) {
+          throw new RequestError(409, '重试编号已用于不同的回复或线路');
+        }
         if (old.answer) return { message: withHoldSource(JSON.parse(old.answer), humanMessage(turn)) };
       }
       await finishPending(window.id, turn.id);
@@ -383,13 +421,13 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       if (prior.budget_blocked) throw budgetError(prior.budget_blocked);
       // A failed upstream call can be retried after restart or after settings change.
       if (!old) {
-        db.prepare(`INSERT INTO regenerations(request_id,message_id,model,selected_model,cache_mode,answer)
-          VALUES(?,?,?,?,?,'')`).run(key, id, model, selected, cacheMode);
+        db.prepare(`INSERT INTO regenerations(request_id,message_id,model,selected_model,cache_mode,route,answer)
+          VALUES(?,?,?,?,?,?,'')`).run(key, id, model, selected, cacheMode, window.route ?? null);
       }
       let answer;
       try {
-        answer = await makeAnswer(prior, old?.selected_model ?? selected, JSON.parse(prior.answer),
-          { contextBudget: window.contextBudget, cacheMode: old?.cache_mode ?? cacheMode });
+        answer = await makeAnswer(prior, old?.selected_model ?? selected, onText, JSON.parse(prior.answer),
+          { contextBudget: window.contextBudget, cacheMode: old?.cache_mode ?? cacheMode, route: old?.route ?? window.route });
       } catch (error) {
         if (error instanceof RangeError) throw budgetError(error instanceof ProviderContextError ? 2 : 1);
         throw error;
@@ -406,9 +444,10 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
 
   function selectModel(input) {
     const window = windows.get(input.thread);
-    const model = checkedModel(input.model, models);
-    db.prepare('UPDATE chat_windows SET model=? WHERE id=?').run(model, window.id);
-    return { model };
+    const route = modelsForRoute ? (input.route ?? window.route) : null;
+    const model = checkedModel(input.model, availableModels(route));
+    db.prepare('UPDATE chat_windows SET model=?,route=? WHERE id=?').run(model, route, window.id);
+    return { model, ...(route && { route }) };
   }
   const pocket = createPocketStore(db, RequestError);
   return {
@@ -420,9 +459,11 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       }
       return pocket.create(input);
     } },
-    listWindows: windows.list, windowModel: thread => windows.get(thread).model, createWindow: windows.create,
+    listWindows: windows.list, windowModel: thread => windows.get(thread).model,
+    windowRoute: thread => windows.get(thread).route, createWindow: windows.create,
     configureContext: windows.configure,
-    setDefaultWindowKey: windows.setDefaultWindowKey, defaultWindowKey: windows.defaultWindowKey,
+    setDefaultWindowKey: windows.setDefaultWindowKey,
+    defaultWindowKey: thread => windows.defaultWindowKey(modelsForRoute ? windows.get(thread).route : null),
     history, send, regenerate, selectModel, searchArchive: input => inRoomOrder(() => searchArchive(input)),
     readArchiveSource, bindEvidence, evidence, close: () => db.close()
   };

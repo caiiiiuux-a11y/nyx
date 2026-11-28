@@ -77,9 +77,9 @@ function setBusy(value, lockDraft = true) {
   $('open-windows').disabled = busy;
   say.readOnly = !room || (busy && lockDraft);
 }
-async function writeChat(action, failure, retry, preserveIssue = false) {
+async function writeChat(action, failure, retry, { preserveIssue = false, allowTyping = false } = {}) {
   if (!room || busy) return;
-  setBusy(true, !preserveIssue);
+  setBusy(true, !allowTyping && !preserveIssue);
   if (!preserveIssue || issues.get(room.thread)?.operation === failure) issues.delete(room.thread);
   storeStatus('');
   try {
@@ -311,7 +311,10 @@ function retryMessage(m) {
   return writeChat(async () => {
     const row = log.querySelector('[data-id="' + m.id + '"]');
     if (!row) return;
-    const updated = await chatService.regenerate(m.id);
+    row.classList.add('regenerating');
+    let updated;
+    try { updated = await withReplyStream(row, onText => chatService.regenerate(m.id, onText)); }
+    finally { row.classList.remove('regenerating'); }
     if (!updated) return;
     const index = room.messages.findIndex(message => message.id === m.id);
     if (index >= 0) room.messages[index] = updated;
@@ -322,7 +325,7 @@ function retryMessage(m) {
     row.replaceWith(replacement);
     if (hadFocus) replacement.querySelector('.message-actions button').focus({ preventScroll: true });
     if (updated.meta.attachments.some(a => a.kind === 'audio')) toast('已重新生成语音');
-  }, '未能确认重新生成的结果。', () => retryMessage(m));
+  }, '未能确认重新生成的结果。', () => retryMessage(m), { allowTyping: true });
 }
 async function keepForLater(message) {
   try {
@@ -478,7 +481,7 @@ async function returnToNote() {
 function build(m) {
   const me = m.from === 'human';
   const row = element('article', 'msg ' + (me ? 'me' : 'ai'));
-  row.dataset.id = m.id;
+  if (m.id != null) row.dataset.id = m.id;
   row.dataset.from = m.from;
   row.dataset.ts = m.ts;
   row.setAttribute('aria-label', me ? 'Iris 的消息' : 'Adrian 的消息');
@@ -516,6 +519,10 @@ function build(m) {
   stamp.dateTime = m.ts;
   body.append(stamp);
   content.append(body);
+  if (m.id == null) {
+    row.append(content);
+    return row;
+  }
   const actions = element('div', 'message-actions');
   if (me && liveLab && m.meta.retryRequestId) {
     const retry = control('重试这条未完成的消息', () => retryPending(m));
@@ -638,13 +645,46 @@ function clearDraft() {
   saveDraft();
 }
 
+// Render provider deltas on the next paint. Only the final, stored reply gets actions and a receipt.
+async function withReplyStream(anchor, request) {
+  const row = build({ from: 'ai', text: 'Adrian 正在回复…', ts: new Date().toISOString(), meta: {} });
+  row.classList.add('stream-reply', 'waiting');
+  row.querySelector('time').remove();
+  anchor.after(row);
+  const words = row.querySelector('.words');
+  const output = document.createTextNode('');
+  let frame = 0;
+  let pending = '';
+  function paint() {
+    frame = 0;
+    const follow = log.scrollHeight - log.clientHeight - log.scrollTop < 64;
+    if (row.classList.contains('waiting')) {
+      row.classList.remove('waiting');
+      words.replaceChildren(output);
+    }
+    output.appendData(pending);
+    pending = '';
+    if (follow) log.scrollTop = log.scrollHeight;
+  }
+  try {
+    return await request(text => {
+      pending += text;
+      if (!frame) frame = requestAnimationFrame(paint);
+    });
+  } finally {
+    cancelAnimationFrame(frame);
+    row.remove();
+  }
+}
+
 function retryPending(message) {
   return writeChat(async () => {
-    const additions = await chatService.retryPending(message);
+    const anchor = log.querySelector('[data-id="' + message.id + '"]');
+    const additions = await withReplyStream(anchor, onText => chatService.retryPending(message, onText));
     displayConfirmed(additions);
     if (message.text === say.value.trim() && (message.meta.attachments[0]?.kind || '') === media &&
         (message.meta.quote?.id ?? null) === (quote?.id ?? null)) clearDraft();
-  }, '还没有收到这条消息的回复。', () => retryPending(message));
+  }, '还没有收到这条消息的回复。', () => retryPending(message), { allowTyping: true });
 }
 
 function send() {
@@ -654,12 +694,46 @@ function send() {
     showChoices('声音样例', [['附上本地样音', () => attach('audio')]], $('send'));
     return;
   }
+  return sendDraft({ text, media, quote, model: room.model, route: room.route });
+}
+
+function sendDraft(draft, previousRow) {
+  if (room.model !== draft.model || room.route !== draft.route) {
+    toast('请先切回这条消息原来的线路和模型。');
+    return;
+  }
+  let pendingRow;
+  const retry = () => sendDraft(draft, pendingRow);
   return writeChat(async () => {
-    const additions = await chatService.send(text, media, quote);
-    displayConfirmed(additions);
-    clearDraft();
+    previousRow?.remove();
+    const attachments = draft.media ? [room.media[draft.media]] : [];
+    pendingRow = build({ from: 'human', text: draft.text, ts: new Date().toISOString(), meta: { attachments, quote: draft.quote } });
+    log.querySelector('.chat-empty')?.remove();
+    log.append(pendingRow);
+    if (say.value.trim() === draft.text && media === draft.media && quote?.id === draft.quote?.id) clearDraft();
+    const sending = withReplyStream(pendingRow, onText => chatService.send(draft.text, draft.media, draft.quote, onText));
     log.scrollTop = log.scrollHeight;
-  }, '未能确认发送结果，输入已保留。', send);
+    try {
+      const messages = await sending;
+      const follow = log.scrollHeight - log.clientHeight - log.scrollTop < 64;
+      pendingRow.remove();
+      displayConfirmed(messages);
+      if (follow) log.scrollTop = log.scrollHeight;
+    } catch (error) {
+      if (!say.value && !media && !quote) {
+        pendingRow.remove();
+        say.value = draft.text;
+        media = draft.media;
+        setQuote(draft.quote, false);
+        saveDraft();
+      } else {
+        const actions = element('div', 'message-actions');
+        actions.append(element('small', '', '发送未确认'), control('重试', retry));
+        pendingRow.querySelector('.msg-content').append(actions);
+      }
+      throw error;
+    }
+  }, '未能确认发送结果，请重试。', retry, { allowTyping: true });
 }
 quoteChip.onclick = () => setQuote(null);
 attachmentChip.onclick = () => attach('');
@@ -667,6 +741,9 @@ $('attach').onclick = () => showChoices('添加附件', [
   ['窗边的兔子 · 图片', () => attach('image')], ['声音样例 · 音频', () => attach('audio')]
 ], $('attach'));
 composer.onsubmit = ev => { ev.preventDefault(); send(); };
+$('send').addEventListener('pointerdown', event => {
+  if (document.activeElement === say) event.preventDefault();
+});
 say.oninput = updateComposer;
 say.addEventListener('focus', updateComposer);
 composer.addEventListener('focusout', event => {
@@ -704,7 +781,7 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
     if (memoryLab) {
       if (!document.querySelector('.memory-lab-guide')) await showMemoryLab();
     } else if (liveLab) {
-      document.querySelector('.chat-date').textContent = (room.route === 'gemini' ? 'Gemini' : '本地模拟') + ' · 合成试聊';
+      document.querySelector('.chat-date').textContent = (room.routeLabel || (room.route === 'mock' ? '本地模拟' : room.model)) + ' · 合成试聊';
       log.setAttribute('aria-label', '与 Adrian 的合成试聊');
       say.placeholder = '写一句合成测试消息…';
     } else if (providerLab) {
@@ -722,8 +799,8 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
         memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : providerLab
         ? '发一句测试消息，再问「Winterfern 灯塔的标记是什么？」'
         : '写给 Adrian…'));
-    picker.replaceChildren(...room.models.map(model => new Option(model, model)));
-    picker.value = room.model;
+    displayModels();
+    if (liveLab && room.catalogReady === false && room.hasKey) refreshChatModels();
     renderContext(room);
     const issue = issues.get(room.thread);
     storeStatus(issue?.message || '', issue?.retry);
@@ -744,14 +821,61 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
     setBusy(false);
   }
 }
+function displayModels() {
+  picker.replaceChildren(...room.models.map(model => new Option(model, model)));
+  if (liveLab && room.route !== 'mock' && room.catalogReady !== undefined) {
+    if (!room.models.includes(room.model)) {
+      const missing = new Option('请选择回复模型', room.model);
+      missing.disabled = true;
+      picker.prepend(missing);
+    }
+    const more = document.createElement('optgroup');
+    more.label = '线路';
+    const refresh = new Option('刷新模型列表', '');
+    refresh.dataset.refresh = 'true';
+    more.append(refresh);
+    picker.append(more);
+  }
+  picker.value = room.model;
+}
+
+let catalogLoading;
+async function refreshChatModels() {
+  const target = room;
+  if (!target || catalogLoading === target) return;
+  catalogLoading = target;
+  try {
+    const state = await chatService.refreshModels({ route: target.route });
+    if (room !== target) return;
+    if (state.route !== room.route) {
+      storeStatus('线路已在其他页面切换，请重新读取。', () => loadRoom());
+      return;
+    }
+    const directory = state.routes.find(entry => entry.id === target.route);
+    target.models = directory.models;
+    target.catalogReady = directory.catalogReady;
+    displayModels();
+    toast('已读取 ' + directory.models.length + ' 个模型');
+  } catch (error) {
+    if (room === target) toast(error.notice || '暂时读不到模型目录，请到杂物间核对线路。');
+  } finally {
+    if (catalogLoading === target) catalogLoading = null;
+  }
+}
+
 function changeModel(value) {
   return writeChat(async () => {
     await chatService.selectModel(value);
     room.model = value;
-  }, '模型的选择尚未确认。', () => changeModel(value), true);
+  }, '模型的选择尚未确认。', () => changeModel(value), { preserveIssue: true });
 }
 picker.onchange = () => {
   say.focus({ preventScroll: true });
+  if (picker.selectedOptions[0]?.dataset.refresh) {
+    picker.value = room.model;
+    refreshChatModels();
+    return;
+  }
   changeModel(picker.value);
 };
 
@@ -808,7 +932,7 @@ function changeContext(settings) {
   return writeChat(async () => {
     await chatService.setContext(settings);
     Object.assign(room, settings);
-  }, '窗口设置尚未保存。', () => changeContext(settings), true).finally(() => renderContext(room));
+  }, '窗口设置尚未保存。', () => changeContext(settings), { preserveIssue: true }).finally(() => renderContext(room));
 }
 budget.onchange = cache.onchange = () => changeContext({ contextBudget: Number(budget.value), cacheMode: cache.value });
 let lineRevision = 0;
@@ -826,7 +950,7 @@ function changeLineDefault(enabled) {
   return writeChat(async () => {
     await chatService.setDefaultWindowKey(enabled);
     room.defaultWindowKey = enabled;
-  }, '线路默认设置尚未保存。', () => changeLineDefault(enabled), true).finally(() => renderContext(room));
+  }, '线路默认设置尚未保存。', () => changeLineDefault(enabled), { preserveIssue: true }).finally(() => renderContext(room));
 }
 defaultKey.onchange = () => changeLineDefault(defaultKey.checked);
 $('context-settings').ontoggle = () => { positionPanel(); refreshLineDefault(); };

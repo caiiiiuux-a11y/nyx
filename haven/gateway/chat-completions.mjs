@@ -75,7 +75,25 @@ async function* eventData(body) {
   decoder.decode();
 }
 
-async function readCompletion(body, model, allowReportedAlias, tools, usage, elapsed) {
+// Keep a possible credential prefix out of the UI, even when split across frames.
+function streamedText(onText, credential) {
+  if (!onText) return null;
+  let held = '';
+  return (delta, finished = false) => {
+    const text = held + delta;
+    if (credential && text.includes(credential)) throw invalidResponse();
+    let cut = text.length;
+    if (credential && !finished) {
+      let overlap = Math.min(credential.length - 1, text.length);
+      while (overlap && !text.endsWith(credential.slice(0, overlap))) overlap--;
+      cut -= overlap;
+    }
+    held = text.slice(cut);
+    if (cut) onText(text.slice(0, cut));
+  };
+}
+
+async function readCompletion(body, model, allowReportedAlias, tools, usage, elapsed, emit) {
   let text = '';
   let reportedModel = null;
   let call;
@@ -84,6 +102,7 @@ async function readCompletion(body, model, allowReportedAlias, tools, usage, ela
     usage.firstResponseMs ??= elapsed();
     if (data === '[DONE]') {
       if (finish === 'stop' && !call && text.trim()) {
+        emit?.('', true);
         return allowReportedAlias ? { text, reportedModel } : { text };
       }
       if (finish !== 'tool_calls' || !call?.id.trim() || !tools.some(tool => tool.name === call.name)) {
@@ -116,6 +135,7 @@ async function readCompletion(body, model, allowReportedAlias, tools, usage, ela
       if (typeof delta.content !== 'string') throw invalidResponse();
       text += delta.content;
       if (delta.content.length) usage.firstOutputMs ??= elapsed();
+      if (delta.content.length) emit?.(delta.content);
     }
     if (delta.tool_calls != null) {
       if (!Array.isArray(delta.tool_calls) || delta.tool_calls.length !== 1) throw invalidResponse();
@@ -157,7 +177,7 @@ export function chatCompletionsEndpoint(baseURL) {
 
 export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allowReportedAlias = false }) {
   const endpoint = chatCompletionsEndpoint(baseURL);
-  return async function complete({ model, messages, tools = [], contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens }) {
+  return async function complete({ model, messages, tools = [], contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens, onText }) {
     const definitions = tools.map(({ name, description, parameters }) => ({
       type: 'function', function: { name, description, parameters }
     }));
@@ -185,7 +205,8 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allo
       throw new Error('模型服务未返回可用的事件流（HTTP ' + response.status + '）');
     }
     // Neither a supplier error body nor a JSON parser error should reach the transcript.
-    const result = await readCompletion(response.body, model, allowReportedAlias, tools, usage, elapsed).catch(error => {
+    const emit = streamedText(onText, apiKey);
+    const result = await readCompletion(response.body, model, allowReportedAlias, tools, usage, elapsed, emit).catch(error => {
       if (error instanceof ProviderContextError) throw error;
       throw invalidResponse();
     });

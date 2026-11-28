@@ -51,11 +51,14 @@ let fixture;
 let live;
 if (liveMode) {
   const { createLiveRoutes } = await import('./live-routes.mjs');
-  live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY });
-  Object.assign(storeOptions, { provider: 'live-lab', models: live.models,
-    supportsWindowKey: true, archiveRecall: false, resumePendingOnRead: false,
+  live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
+    model: process.env.HAVEN_TRIAL_MODEL, profileFile: resolve(dirname(database), 'providers.json') });
+  Object.assign(storeOptions, { provider: 'live-lab', models: live.active('mock').models,
+    modelsForRoute: route => live.active(route).models,
+    supportsWindowKey: true, resumePendingOnRead: false,
+    ...(values.db !== undefined && { embedder: false }),
     complete(request, options) {
-      if (request.model !== store.windowModel(request.thread)) {
+      if (request.route !== store.windowRoute(request.thread) || request.model !== store.windowModel(request.thread)) {
         throw new RequestError(409, '本窗口的线路已经改变。请切回原线路后重试这条消息。');
       }
       return live.complete(request, options);
@@ -92,6 +95,24 @@ function json(res, status, value) {
   res.end(JSON.stringify(value));
 }
 
+async function streamChat(res, action, input) {
+  function frame(event) {
+    if (res.destroyed) return; // The accepted turn still finishes and saves if the tab closes.
+    if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
+    res.write(JSON.stringify(event) + '\n');
+  }
+  try {
+    const result = await action(input, text => frame({ type: 'text', text }));
+    frame({ type: 'done', result }); // The store has committed the completed message and its usage.
+  } catch (error) {
+    if (!res.headersSent) throw error;
+    const expected = error instanceof RequestError;
+    frame({ type: 'error', status: expected ? error.status : 500,
+      error: expected ? error.message : '回复中断了，请重试。' });
+  }
+  if (!res.destroyed) res.end();
+}
+
 async function readJson(req, maxBytes = 256 * 1024) {
   if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     throw new RequestError(415, '需要 JSON 请求');
@@ -124,7 +145,7 @@ function historyOptions(params) {
 
 async function api(req, res, url) {
   if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
-    '/app/routes', '/app/provider-cache'].includes(url.pathname)) {
+    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/provider-cache'].includes(url.pathname)) {
     throw new RequestError(404, '试验线路只开放聊天');
   }
   const origin = req.headers.origin;
@@ -133,6 +154,12 @@ async function api(req, res, url) {
   }
   if (live && req.method === 'POST' && origin !== url.origin) {
     throw new RequestError(403, '请从本机小屋内操作。');
+  }
+  if (live && ['/app/routes/providers', '/app/routes/models'].includes(url.pathname)) {
+    if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
+    const input = await readJson(req, 8192);
+    const result = url.pathname === '/app/routes/providers' ? await live.add(store, input) : await live.refresh(store, input);
+    return json(res, 200, result);
   }
   if (url.pathname === '/app/routes') {
     if (req.method === 'GET') {
@@ -147,15 +174,18 @@ async function api(req, res, url) {
   if (url.pathname === '/app/history' && req.method === 'GET') {
     const history = await store.history(historyOptions(url.searchParams));
     if (live) {
-      const route = live.active(history.model);
-      history.route = route.id;
-      history.models = route.models;
-      history.cacheCapabilities.windowKey = route.id === 'gemini';
+      const route = live.active(history.route);
+      history.routeLabel = route.label;
+      history.hasKey = route.hasKey;
+      history.requiresKey = route.requiresKey;
+      history.catalogReady = route.catalogReady;
     }
     return json(res, 200, history);
   }
   if (url.pathname === '/app/windows' && req.method === 'GET') return json(res, 200, store.listWindows());
-  if (url.pathname === '/app/provider-cache' && req.method === 'GET') return json(res, 200, { defaultWindowKey: store.defaultWindowKey() });
+  if (url.pathname === '/app/provider-cache' && req.method === 'GET') {
+    return json(res, 200, { defaultWindowKey: store.defaultWindowKey(url.searchParams.get('thread') ?? undefined) });
+  }
   const pocket = /^\/app\/pocket(?:\/([^/]+))?$/.exec(url.pathname);
   if (pocket) {
     const id = pocket[1];
@@ -176,13 +206,19 @@ async function api(req, res, url) {
   if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
   const input = await readJson(req);
   if (live && ['/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {
-    const route = live.active(store.windowModel(input.thread));
-    if (input.model != null && !route.models.includes(input.model)) {
+    const route = live.active(store.windowRoute(input.thread));
+    const model = input.model ?? store.windowModel(input.thread);
+    // Pre-directory clients could only select these two exact route/model pairs.
+    const legacyRoute = model === 'iris-demo-a' ? 'mock' : model === 'vertex_ai/gemini-3.8-flash' ? 'gemini' : null;
+    if ((input.route ?? legacyRoute) !== route.id || !route.models.includes(model)) {
       throw new RequestError(409, '本窗口的线路已经改变，请重新打开聊天框。');
     }
-    if (route.id === 'gemini' && !live.status(store, input.thread).hasKey) {
-      throw new RequestError(409, '请在杂物间为 Gemini 填写线路密钥。');
+    if (url.pathname !== '/app/model' && route.requiresKey && !route.hasKey) {
+      throw new RequestError(409, '请在杂物间为当前线路填写密钥。');
     }
+  }
+  if (req.headers.accept === 'application/x-ndjson' && ['/app/send', '/app/regenerate'].includes(url.pathname)) {
+    return streamChat(res, action, input);
   }
   return json(res, 200, await action(input));
 }
