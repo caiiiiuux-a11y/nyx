@@ -188,7 +188,7 @@ export function chatCompletionsEndpoint(baseURL) {
 
 export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allowReportedAlias = false }) {
   const endpoint = chatCompletionsEndpoint(baseURL);
-  return async function complete({ model, messages, tools = [], contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens, onText }) {
+  return async function complete({ model, messages, tools = [], toolChoice, contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens, onText }) {
     const definitions = tools.map(({ name, description, parameters }) => ({
       type: 'function', function: { name, description, parameters }
     }));
@@ -200,6 +200,7 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allo
       payload.max_tokens = maxTokens;
     }
     if (definitions.length) payload.tools = definitions;
+    if (toolChoice === 'none') payload.tool_choice = 'none';
     if (cacheMode === 'window') payload.prompt_cache_key = 'haven-' + thread;
     usage.windowKeySent = Object.hasOwn(payload, 'prompt_cache_key');
     const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };

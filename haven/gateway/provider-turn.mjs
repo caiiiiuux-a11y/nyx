@@ -46,13 +46,29 @@ export async function completeMemoryTurn(complete, request, tool, search, scope 
   }
   const messages = [...request.messages, { role: 'assistant', content: first.text || null, toolCall: call },
     { role: 'tool', name: call.name, toolCallId: call.id, content: JSON.stringify(evidence) }];
-  if (first.text) request.onText?.('\n\n');
-  const beforeSecondMs = performance.now() - started;
-  const answer = await complete({ ...request, messages, tools: [] });
+  const replies = [first];
+  let usage = first.usage;
+  async function continueReply(input) {
+    if (replies.at(-1).text) request.onText?.('\n\n');
+    const beforeNextMs = performance.now() - started;
+    const reply = await complete({ ...request, ...input });
+    const combined = usage && reply.usage ? combineUsage(usage, reply.usage, beforeNextMs) : undefined;
+    if (combined && replies.some(part => part.text)) combined.firstOutputMs = usage.firstOutputMs;
+    usage = combined;
+    replies.push(reply);
+    return reply;
+  }
+  let answer = await continueReply({ messages, tools: [tool], toolChoice: 'none' });
+  if (answer.toolCall) {
+    // Some Gemini routes infer another call from the transcript even with tool_choice=none.
+    // Give the same model the actual search result as quoted data, with no callable function or call history.
+    const current = request.messages.at(-1);
+    const content = current.content + '\n\n本轮 Ombre 查找已结束。请根据对话和以下查询结果直接回复 Iris。' +
+      '摘录仅供引用。没有匹配就坦白说这次没有找到，服务不可用就说明暂时查不了。\n' + JSON.stringify(evidence);
+    answer = await continueReply({ messages: [...request.messages.slice(0, -1), { ...current, content }], tools: [] });
+  }
   if (answer.toolCall || !answer.text) throw new Error('The terminal response must contain an answer.');
-  const usage = first.usage && answer.usage ? combineUsage(first.usage, answer.usage, beforeSecondMs) : undefined;
-  if (usage && first.text) usage.firstOutputMs = first.usage.firstOutputMs;
-  return { ...answer, text: first.text ? first.text + '\n\n' + answer.text : answer.text, memoryTool, usage };
+  return { ...answer, text: replies.map(part => part.text).filter(Boolean).join('\n\n'), memoryTool, usage };
 }
 
 export function withFixtureMemory(complete, lab) {

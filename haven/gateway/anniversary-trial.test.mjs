@@ -26,7 +26,7 @@ test('a private lookup is limited to the approved question, window and model and
     async fetchImpl(_, opts) {
       const payload = JSON.parse(opts.body);
       sent.push(payload);
-      const searching = Boolean(payload.tools);
+      const searching = Boolean(payload.tools) && payload.tool_choice !== 'none';
       const delta = searching ? { tool_calls: [{ index: 0, id: 'fixture-call', type: 'function',
         function: { name: 'memory_search', arguments: '{"query":"纪念日"}' } }] } : { content: '回复' };
       return new Response('data: ' + JSON.stringify({ choices: [{delta, finish_reason: searching ? 'tool_calls' : 'stop'}] }) +

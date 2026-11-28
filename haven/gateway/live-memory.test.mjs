@@ -36,7 +36,8 @@ test('a fresh Gemini window searches on demand, streams the answer, and reopens 
       if (last.role === 'tool') {
         assert.equal(last.tool_call_id, call.id);
         assert.deepEqual(body.messages.at(-2).tool_calls, [call]);
-        assert.equal(body.tools, undefined);
+        assert.deepEqual(body.tools, sent[0].tools);
+        assert.equal(body.tool_choice, 'none');
         const evidence = JSON.parse(last.content);
         assert.deepEqual(evidence, { found: true, bucketId, excerpt });
         return stream({ content: evidence.excerpt }, 'stop');
@@ -84,6 +85,53 @@ test('a fresh Gemini window searches on demand, streams the answer, and reopens 
   routes.select(store, { thread: another, route: addedRoute, model });
   await store.send({ thread: another, requestId: 'elsewhere', text: question });
   assert.equal(searches.length, 2);
+});
+
+test('a Gemini route that repeats a lookup after a miss finishes the same turn with one search', async t => {
+  const call = { id: 'first-lookup', type: 'function',
+    function: { name: 'memory_search', arguments: JSON.stringify({ query: '苹果树' }) } };
+  const payloads = [];
+  const lookups = [];
+  const reply = '这次没有找到苹果树的记录。';
+  const routes = createLiveRoutes({ baseURL: 'https://fixture.example/v1', model, apiKey: 'local-test-key',
+    searchMemory(query) { lookups.push(query); return null; },
+    async fetchImpl(_, options) {
+      const body = JSON.parse(options.body);
+      payloads.push(body);
+      if (body.tools) {
+        const preamble = body.messages.at(-1).role === 'tool' ? '让我想想。' : '我查一下。';
+        return stream({ content: preamble, tool_calls: [call] }, 'tool_calls');
+      }
+      return stream({ content: reply }, 'stop');
+    } });
+  const store = openStore(':memory:', { complete: routes.complete, models: routes.active('mock').models,
+    modelsForRoute: id => routes.active(id).models, resumePendingOnRead: false, embedder: false });
+  t.after(() => store.close());
+  routes.select(store, { route: 'gemini', model });
+  const draft = { requestId: 'garden-question', text: '还记得那棵苹果树吗？' };
+  const deltas = [];
+  const result = await store.send(draft, delta => deltas.push(delta));
+  assert.equal(payloads.length, 3);
+  assert.equal(payloads[0].tool_choice, undefined);
+  assert.deepEqual(payloads[1].tools, payloads[0].tools);
+  assert.equal(payloads[1].tool_choice, 'none');
+  assert.deepEqual(payloads[1].messages.at(-1), { role: 'tool', tool_call_id: call.id, content: '{"found":false}' });
+  assert.equal(payloads[2].tools, undefined);
+  assert.deepEqual(payloads[2].messages.map(message => message.role), ['system', 'user']);
+  assert.ok(payloads[2].messages.at(-1).content.endsWith('{"found":false}'));
+  assert.doesNotMatch(JSON.stringify(payloads[2]), /first-lookup|memory_search/);
+  assert.deepEqual(lookups, ['苹果树']);
+  const [, answer] = result.messages;
+  assert.equal(answer.text, '我查一下。\n\n让我想想。\n\n' + reply);
+  assert.equal(deltas.join(''), answer.text);
+  assert.equal(answer.meta.memoryTool.status, 'empty');
+  assert.equal(answer.meta.memoryTool.bucketId, undefined);
+  assert.equal(answer.meta.memoryTool.excerpt, undefined);
+  assert.equal(answer.meta.usage.calls, 3);
+  assert.equal(answer.meta.usage.totalTokens, 90);
+  assert.deepEqual((await store.send(draft)).messages, result.messages);
+  assert.deepEqual((await store.history()).messages, result.messages);
+  assert.equal(payloads.length, 3);
 });
 
 test('only relevant direct hits on the one synthetic text can leave the lab', () => {
