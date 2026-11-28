@@ -255,8 +255,10 @@ function appendMemoryReceipt(content, tool, opening = false) {
       content.append(element('p', 'receipt-status', ['日历手账', tool.date, tool.status === 'ok' ? action : '留言待核对'].filter(Boolean).join(' · ')));
       if (tool.output) content.append(element('blockquote', '', tool.output));
       if (tool.status === 'ok' && /^\d{4}-\d{2}-\d{2}$/.test(tool.date)) {
-        const day = element('a', 'receipt-caption', '打开这天的明细 ›');
-        day.href = '/diary/?date=' + tool.date + '&view=day' + (tool.name === 'calendar_note' ? '#signed-notes' : '#star-heading');
+        const note = tool.name === 'calendar_note';
+        const day = element('a', 'receipt-caption', note ? '看这张便签 ›' : '打开这天的明细 ›');
+        const anchor = Number.isSafeInteger(tool.noteId) ? '#signed-note-' + tool.noteId : '#signed-notes';
+        day.href = '/diary/?date=' + tool.date + (note ? anchor : '&view=day#star-heading');
         content.append(day);
       }
       return;

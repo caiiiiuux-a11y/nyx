@@ -41,11 +41,39 @@
         </div>
       </div>
       <p id="month-status" class="status" role="status"></p>
-      <button type="button" id="open-detail" class="turn-page"></button>
+      <section class="memo-board" id="memo-board" aria-labelledby="memo-title">
+        <span class="memo-paper" aria-hidden="true"></span>
+        <header class="memo-dateline">
+          <h2 id="memo-title"><time id="memo-date"></time><span id="memo-week"></span><span class="memo-title-word">便签</span></h2>
+          <button type="button" id="open-detail" class="turn-page">明细 <span aria-hidden="true">›</span></button>
+        </header>
+        <article class="memo-entry" data-note-field="memo" aria-labelledby="iris-memo-title">
+          <div class="memo-byline">
+            <img src="/room/assets/clip-dot-pink.webp" width="52" height="22" alt="">
+            <h3 lang="en" id="iris-memo-title">Iris</h3>
+            <button type="button" class="memo-edit" aria-expanded="false" aria-controls="day-memo">写一笔</button>
+          </div>
+          <p class="handwritten" hidden></p>
+          <textarea id="day-memo" aria-label="Iris 的便签全文" rows="3" maxlength="1200" placeholder="写下今天的一件小事…" hidden></textarea>
+        </article>
+        <article class="memo-entry" data-note-field="adrianMemo" aria-labelledby="adrian-memo-title">
+          <div class="memo-byline">
+            <img src="/room/assets/clip-dot-blue.webp" width="52" height="22" alt="">
+            <h3 lang="en" id="adrian-memo-title">Adrian</h3>
+            <button type="button" class="memo-edit" aria-expanded="false" aria-controls="adrian-memo">写一笔</button>
+          </div>
+          <p class="handwritten" hidden></p>
+          <textarea id="adrian-memo" aria-label="Adrian 的便签全文" rows="3" maxlength="1200" placeholder="写下今天的一件小事…" hidden></textarea>
+          <div id="signed-notes" aria-label="阿川的署名便签" tabindex="-1"></div>
+        </article>
+        <p id="memo-load-status" class="status" role="status"></p>
+        <button type="button" id="reload-notes" class="text-button" hidden>重新读取便签</button>
+        <p id="memo-save-status" class="status" role="status"></p>
+      </section>
     </section>
     <section class="daily" id="detail-page" aria-labelledby="day-heading" hidden>
       <header class="day-heading"><div><h2 id="day-heading" tabindex="-1"></h2><span id="day-week"></span></div><img src="/room/assets/mailbox-bird.webp" alt=""></header>
-      <button type="button" id="read-day-notes" class="note-jump" hidden><img src="/room/assets/mini-blue-book.webp" alt=""><span></span>　›</button>
+      <a id="read-day-notes" class="note-jump" hidden><img src="/room/assets/mini-blue-book.webp" alt=""><span></span>　›</a>
       <div id="day-summary" class="day-summary"></div>
       <div class="record-actions">
         <button type="button" data-editor="meals" aria-expanded="false" aria-controls="record-form" disabled><img src="/room/assets/blue-rim-teacup.webp" alt="">记一餐</button>
@@ -76,27 +104,6 @@
           <button type="submit" aria-label="添加待办">＋</button>
         </form>
       </details>
-      <section class="diary-memos" aria-labelledby="memo-title">
-        <h3 id="memo-title">便签</h3>
-        <details class="memo-paper iris-note" data-note-field="memo">
-          <summary>
-            <img src="/room/assets/pin-rabbit.png" alt="" width="60" height="67">
-            <strong lang="en">Iris</strong>
-            <span class="memo-preview"></span>
-          </summary>
-          <textarea id="day-memo" aria-label="Iris 的便签全文" rows="4" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
-        </details>
-        <details class="memo-paper adrian-note" data-note-field="adrianMemo">
-          <summary>
-            <img src="/room/assets/pin-fawn.png" alt="" width="81" height="66">
-            <strong lang="en">Adrian</strong>
-            <span class="memo-preview"></span>
-            <span id="day-note-count" hidden></span>
-          </summary>
-          <div id="signed-notes"></div>
-          <textarea id="adrian-memo" aria-label="Adrian 的便签全文" rows="4" maxlength="1200" placeholder="记下今天的一件小事…"></textarea>
-        </details>
-      </section>
       <p id="save-status" class="status" role="status"></p>
     </section>
     </div>

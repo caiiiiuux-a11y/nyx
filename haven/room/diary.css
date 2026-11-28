@@ -79,8 +79,66 @@ body[data-page="diary"] {
 .legend button { min-height: 38px; display: inline-flex; gap: 4px; align-items: center; padding: 2px 7px; color: #73594e; font-size: .77rem; border-radius: 12px; }
 .legend button[aria-pressed="true"] { color: #73384c; background: #f9e4e8; box-shadow: inset 0 0 0 1px #dfb7bf; }
 .legend img { width: 23px; height: 23px; object-fit: contain; }
-.diary .turn-page { display: block; margin: 12px 1px 0 auto; min-height: 38px; padding: 5px 14px; border: 1px solid #dbc2ba;
-  background: #fff9f0; color: #81545e; border-radius: 14px 5px 14px 5px; font-size: .82rem; }
+.memo-board {
+  --sheet-pad: clamp(16px, 4.5vw, 28px);
+  position: relative; isolation: isolate; margin: 23px clamp(7px, 1.8vw, 12px) 45px;
+  padding: 18px var(--sheet-pad) 21px;
+}
+.memo-paper, .memo-board::before, .memo-board::after { position: absolute; pointer-events: none; }
+.memo-paper {
+  z-index: -1; inset: -2px -3px;
+  border: 14px solid transparent; border-image: url('/room/assets/paper-cotton.webp') 32 fill / 14px round;
+  background: #fff9ef content-box;
+  /* The slope depends on the sheet's width, so even a long entry stays inside the page. */
+  transform: skewY(-1.4deg);
+  filter: drop-shadow(1px 2px 1px #765a494d) drop-shadow(2px 5px 3px #6750482e);
+}
+.memo-board::before, .memo-board::after {
+  content: ""; height: clamp(96px, 22vw, 135px); background-position: center bottom;
+  background-size: 100% auto; background-repeat: no-repeat; filter: drop-shadow(1px 2px 2px #72596945);
+}
+.memo-board::before {
+  z-index: -3; left: 9%; right: -4px; bottom: -30px; transform: rotate(2.8deg);
+  transform-origin: 90% bottom; background-image: url('/room/assets/paper-dot-blue.webp');
+}
+.memo-board::after {
+  z-index: -2; left: -5px; right: 8%; bottom: -24px; transform: rotate(-2.4deg);
+  transform-origin: 10% bottom; background-image: url('/room/assets/paper-grid.webp');
+}
+.memo-dateline, .memo-dateline h2, .memo-byline { display: flex; align-items: center; }
+.memo-dateline { flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; padding-bottom: 10px; }
+.memo-dateline::before {
+  content: ""; position: absolute; top: -10px; right: 18%; width: clamp(46px, 10vw, 59px); height: 19px;
+  background: url('/room/assets/sky-dot-washi.webp') center / contain no-repeat; opacity: .84;
+  transform: rotate(8deg); pointer-events: none;
+}
+.memo-dateline h2 { margin: 0; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+#memo-date { color: var(--rose); font: bold clamp(1.6rem,5vw,2rem)/1.2 Georgia,serif; letter-spacing: -.04em; }
+#memo-week { color: var(--muted); font: 500 .77rem/1.4 var(--room-cn); }
+.memo-title-word { color: #785456; font-size: .88rem; font-weight: 600; }
+.diary .turn-page { min-height: 36px; padding: 4px 12px; border-radius: 15px; background: #f5e1e5; color: #754456; font-size: .82rem; }
+.turn-page span { margin-left: 3px; }
+.memo-entry { --author: #92516b; position: relative; min-height: 84px; padding: 10px 0 14px; border-top: 1px dashed #e3ccc2; }
+.memo-entry[data-note-field="adrianMemo"] { --author: var(--blue); }
+.memo-byline { min-height: 34px; gap: 8px; padding-left: 34px; }
+.memo-byline img { position: absolute; width: clamp(48px, 11vw, 54px); height: auto; left: calc(-4px - var(--sheet-pad)); top: 15px;
+  transform: rotate(-3deg) scaleX(-1); filter: drop-shadow(0 2px 1px #78515c45); pointer-events: none; }
+.memo-entry[data-note-field="adrianMemo"] .memo-byline img { transform: rotate(4deg) scaleX(-1); }
+.memo-byline h3 { margin: 0; color: var(--author); font: 600 1.06rem/1.3 Georgia,serif; }
+.diary .memo-edit { margin-left: auto; min-height: 34px; min-width: 45px; padding: 3px 6px; color: var(--author); font-size: .8rem;
+  text-decoration: underline dotted #d7bcb6; text-underline-offset: 4px; }
+.memo-edit[aria-expanded="true"] { background: #fffbf6; border-radius: 8px; }
+.memo-entry::after { content: ""; display: block; border-bottom: 1px solid #ead9cd; margin-top: 12px; opacity: .55; }
+.memo-entry:has(.handwritten:not([hidden]), textarea:not([hidden]), .signed-note)::after { display: none; }
+.handwritten, .signed-note p { margin: 4px 0 0; font-size: .96rem; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memo-entry textarea { margin-top: 6px; }
+#signed-notes, .signed-note { scroll-margin-block: 22px; }
+.signed-note { margin: 6px 0 0; }
+.signed-note + .signed-note, .handwritten:not([hidden]) ~ #signed-notes .signed-note:first-child {
+  border-top: 1px dotted #d8d5c9; margin-top: 12px; padding-top: 6px;
+}
+.signed-note time { display: block; margin-top: 3px; color: #626f77; font-size: .73rem; line-height: 1.6; }
+.signed-note:target { background: #e4ece770; border-radius: 5px; }
 .daily { min-width: 0; margin-top: 19px; padding: 17px clamp(14px,4vw,25px); border-radius: 10px 7px 13px 9px; background: #fff8ef; }
 .day-heading { display: flex; align-items: center; justify-content: space-between; }
 .day-heading > div { display: flex; align-items: baseline; gap: 8px; }
@@ -118,11 +176,11 @@ body[data-page="diary"] {
 .message-star { width: 17px; height: 17px; object-fit: contain; }
 .day-message small { display: block; color: var(--blue); }
 .task-paper { padding: 9px 0; border-block: 1px dashed var(--edge); }
-.task-paper summary, .memo-paper summary { display: flex; align-items: center; cursor: pointer; list-style: none; }
-.task-paper summary::-webkit-details-marker, .memo-paper summary::-webkit-details-marker { display: none; }
+.task-paper summary { display: flex; align-items: center; cursor: pointer; list-style: none; }
+.task-paper summary::-webkit-details-marker { display: none; }
 .task-paper summary { justify-content: space-between; min-height: 29px; }
-.fold-icon::after, .memo-paper summary::after { content: '⌄'; color: var(--muted); }
-details[open] > summary .fold-icon::after, .memo-paper[open] summary::after { content: '⌃'; }
+.fold-icon::after { content: '⌄'; color: var(--muted); }
+details[open] > summary .fold-icon::after { content: '⌃'; }
 #day-tasks { list-style: none; padding: 0; margin: 5px 0; }
 #day-tasks li, .task-form { display: flex; align-items: center; gap: 5px; }
 #day-tasks li { justify-content: space-between; font-size: .9rem; }
@@ -131,20 +189,9 @@ details[open] > summary .fold-icon::after, .memo-paper[open] summary::after { co
 #day-tasks input:checked + span { text-decoration: line-through; color: var(--muted); }
 .task-form input { flex: 1; }
 .remove-task, .task-form button { min-width: 32px; min-height: 32px; }
-.diary-memos { margin-top: 12px; }
-.memo-paper { margin-top: 6px; padding: 2px 6px; }
-.memo-paper summary { gap: 7px; min-height: 34px; font-size: .83rem; }
-.memo-paper img { width: 27px; height: 27px; object-fit: contain; }
-.memo-paper strong { font-family: Georgia,serif; }
-.memo-preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.has-signed-notes.blank-memo .memo-preview { display: none; }
-#day-note-count { color: var(--blue); font-size: .78rem; margin-right: auto; }
 .diary .note-jump { display: inline-flex; align-items: center; padding: 4px 8px; min-height: 32px; margin-top: 5px;
-  border-radius: 5px 12px 12px 5px; background: #e9efed; color: var(--blue); font-size: .8rem; }
+  border-radius: 5px 12px 12px 5px; background: #e9efed; color: var(--blue); text-decoration: none; font-size: .8rem; }
 .note-jump img { width: 21px; height: 20px; object-fit: contain; margin-right: 4px; }
-.signed-note { padding: 9px 13px; margin: 4px 0 9px; background: #eff2ee; border-left: 3px solid #a4bac1; border-radius: 3px 10px 8px 3px; }
-.signed-note p { margin: 0 0 4px; font-size: .9rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.signed-note small { font-size: .74rem; color: var(--blue); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (min-width: 760px) {
   .diary { padding-top: 14px; }
@@ -160,6 +207,7 @@ details[open] > summary .fold-icon::after, .memo-paper[open] summary::after { co
 }
 @media (max-width: 360px) {
   .diary { padding-inline: 9px; }
+  .diary-top::before { inset-inline: -9px; }
   .legend button { padding-inline: 3px; }
   .window-rabbit { width: 45px; height: 56px; left: 0; }
 }

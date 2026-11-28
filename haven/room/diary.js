@@ -21,22 +21,30 @@ let filter = null;
 
 function paintNote(note) {
   const text = entry[note.dataset.noteField];
-  note.classList.toggle('blank-memo', !text.trim());
-  note.querySelector('.memo-preview').textContent = text.trim() || '写一张便签…';
   const field = note.querySelector('textarea');
+  const body = note.querySelector('.handwritten');
+  const button = note.querySelector('.memo-edit');
+  const editing = !field.hidden;
+  const author = note.querySelector('h3').textContent;
+  body.textContent = text;
+  body.hidden = editing || !text.trim();
+  button.textContent = editing ? '写好了' : text.trim() ? '编辑' : '写一笔';
+  button.setAttribute('aria-expanded', String(editing));
+  button.setAttribute('aria-label', editing ? '完成 ' + author + ' 的手写便签' : (text.trim() ? '编辑 ' : '写 ') + author + ' 的手写便签');
   if (field.value !== text) field.value = text;
 }
 
 function persist(change) {
   entry = unsaved ? entry : readNote(selected);
   change(entry);
+  const status = byId(detail ? 'save-status' : 'memo-save-status');
   try {
     writeNote(selected, entry);
     unsaved = false;
-    byId('save-status').textContent = '已保存在本机';
+    status.textContent = '已保存在本机';
   } catch {
     unsaved = true;
-    byId('save-status').textContent = '本机未能保存，请先保留这一页。';
+    status.textContent = '本机未能保存，请先保留这一页。';
   }
   paintCalendar();
 }
@@ -63,6 +71,8 @@ function decorate(cell, date, record) {
 }
 
 function paintCalendar() {
+  const grid = byId('diary-days');
+  const focusedDay = grid.contains(document.activeElement) && document.activeElement.dataset.day;
   const y = selected.getFullYear(), m = selected.getMonth();
   const first = (new Date(y, m, 1).getDay() + 6) % 7;
   const last = new Date(y, m + 1, 0).getDate();
@@ -91,7 +101,8 @@ function paintCalendar() {
     decorate(cell, date, d === selected.getDate() ? entry : readNote(date));
     days.append(cell);
   }
-  byId('diary-days').replaceChildren(days);
+  grid.replaceChildren(days);
+  if (focusedDay) grid.querySelector('[data-day="' + focusedDay + '"]')?.focus({ preventScroll: true });
 }
 
 function paintTasks() {
@@ -125,27 +136,34 @@ function paintTasks() {
 
 function paintDay() {
   paintCalendar();
-  byId('day-heading').textContent = dateKey(selected).slice(5).replace('-', '.');
-  byId('open-detail').textContent = '翻到 ' + byId('day-heading').textContent + ' 的明细　›';
-  byId('day-week').textContent = weekName.format(selected) + (dateKey(selected) === dateKey(new Date()) ? ' · 今天' : '');
+  const key = dateKey(selected);
+  byId('memo-date').dateTime = key;
+  byId('memo-date').textContent = byId('day-heading').textContent = key.slice(5).replace('-', '.');
+  const weekday = weekName.format(selected);
+  byId('memo-week').textContent = weekday;
+  byId('day-week').textContent = weekday + (key === dateKey(new Date()) ? ' · 今天' : '');
+  byId('open-detail').setAttribute('aria-label', '打开' + label.format(selected) + '的明细');
   for (const note of notes) paintNote(note);
   paintTasks();
 }
 
-function selectDay(date, open = detail, mode = 'replace') {
+function selectDay(date, open = detail, mode = 'replace', hash = '') {
   if (unsaved) {
     persist(() => {});
-    if (unsaved) return;
+    if (unsaved) return false;
   }
+  const noteTarget = /^#(?:signed-notes|signed-note-\d+)$/.test(hash) ? hash.slice(1) : null;
+  if (noteTarget) open = false;
   selected = date;
   detail = open;
   entry = readNote(selected);
   const url = new URL(location.href);
   url.searchParams.set('date', dateKey(date));
   if (open) url.searchParams.set('view', 'day');
-  else { url.searchParams.delete('view'); url.hash = ''; }
+  else url.searchParams.delete('view');
+  url.hash = hash;
   if (mode === 'push') history.pushState({ fromMonth: true }, '', url);
-  else if (mode === 'replace') history.replaceState(history.state, '', url);
+  else if (mode === 'replace' || url.href !== location.href) history.replaceState(history.state, '', url);
   byId('month-page').hidden = open;
   byId('detail-page').hidden = !open;
   document.querySelector('a.back-home').hidden = open;
@@ -153,19 +171,15 @@ function selectDay(date, open = detail, mode = 'replace') {
   byId('sheet-title').textContent = open ? '当日明细' : '日历手账';
   byId('new-task').value = '';
   byId('save-status').textContent = '';
-  for (const note of notes) note.open = false;
-  if (open && url.hash === '#signed-notes') document.querySelector('.adrian-note').open = true;
-  page.select(dateKey(date), open);
+  byId('memo-save-status').textContent = '';
+  for (const note of notes) note.querySelector('textarea').hidden = true;
+  page.select(dateKey(date), open, noteTarget);
   paintDay();
+  return true;
 }
 
 function openDetails(date) {
-  if (!detail) {
-    const url = new URL(location.href);
-    url.searchParams.set('date', dateKey(date));
-    history.replaceState(null, '', url);
-  }
-  selectDay(date, true, detail ? 'replace' : 'push');
+  if (!selectDay(date, true, detail ? 'replace' : 'push')) return;
   window.scrollTo(0, 0);
   byId('day-heading').focus({ preventScroll: true });
 }
@@ -178,7 +192,7 @@ function changeMonth(offset) {
 
 byId('previous').onclick = () => changeMonth(-1);
 byId('next').onclick = () => changeMonth(1);
-byId('today').onclick = () => openDetails(new Date());
+byId('today').onclick = () => selectDay(new Date(), detail);
 byId('open-detail').onclick = () => openDetails(selected);
 byId('back-month').onclick = () => {
   if (history.state?.fromMonth) history.back();
@@ -187,7 +201,8 @@ byId('back-month').onclick = () => {
 window.addEventListener('popstate', () => {
   const params = new URLSearchParams(location.search);
   const next = new Date(params.get('date') + 'T12:00:00');
-  selectDay(dateKey(next) === params.get('date') ? next : new Date(), params.get('view') === 'day', null);
+  selectDay(dateKey(next) === params.get('date') ? next : new Date(), params.get('view') === 'day', null, location.hash);
+  if (location.hash) return;
   window.scrollTo(0, 0);
   (detail ? byId('day-heading') : byId('diary-days').querySelector('[aria-pressed="true"]'))?.focus({ preventScroll: true });
 });
@@ -199,10 +214,18 @@ for (const button of document.querySelectorAll('.legend button')) button.onclick
 byId('diary-days').onclick = event => {
   const cell = event.target.closest('button[data-day]');
   if (!cell) return;
-  openDetails(new Date(selected.getFullYear(), selected.getMonth(), Number(cell.dataset.day)));
+  selectDay(new Date(selected.getFullYear(), selected.getMonth(), Number(cell.dataset.day)), false);
 };
 for (const note of notes) {
-  note.querySelector('textarea').oninput = event => {
+  const field = note.querySelector('textarea');
+  const button = note.querySelector('.memo-edit');
+  button.onclick = () => {
+    if (!field.hidden && unsaved) { persist(() => {}); if (unsaved) return; }
+    field.hidden = !field.hidden;
+    paintNote(note);
+    (field.hidden ? button : field).focus();
+  };
+  field.oninput = event => {
     persist(record => { record[note.dataset.noteField] = event.target.value; });
     paintNote(note);
   };
@@ -221,4 +244,4 @@ window.addEventListener('storage', event => {
   entry = readNote(selected);
   paintDay();
 });
-selectDay(selected, detail);
+selectDay(selected, detail, 'replace', location.hash);

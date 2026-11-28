@@ -6,6 +6,7 @@ const live = document.documentElement.hasAttribute('data-live-lab');
 const previewPrefix = 'haven.room.stickers.v1.';
 const editorButtons = [...document.querySelectorAll('[data-editor]')];
 const previewFields = day => JSON.parse(localStorage.getItem(previewPrefix + day) || '{}');
+const noteTime = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 async function api(path, input) {
   const response = await fetch('/app/calendar/' + path, input ? {
@@ -17,7 +18,7 @@ async function api(path, input) {
 }
 
 export function createDiaryPage(repaint) {
-  let day, shownMonth, monthMarks = {}, detailOpen = false;
+  let day, shownMonth, monthMarks = {}, detailOpen = false, linkedNote = null;
   let monthVersion = 0, dayVersion = 0;
   let fields = {}, messages = [], loaded = false, canAsk = false, editor;
   const drafts = new Map(), questions = new Map(), writing = new Set(), asking = new Set();
@@ -139,26 +140,42 @@ export function createDiaryPage(repaint) {
 
   function renderSignedNotes(notes) {
     const rows = notes.map(note => {
-      const row = document.createElement('article'), text = document.createElement('p'), signature = document.createElement('small');
+      const row = document.createElement('article'), text = document.createElement('p'), signature = document.createElement('time');
       row.className = 'signed-note';
+      row.id = 'signed-note-' + note.id;
+      row.tabIndex = -1;
       text.textContent = note.text;
-      signature.textContent = '阿川留于 ' + new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(note.created));
+      signature.dateTime = note.created;
+      signature.textContent = '阿川留于 ' + noteTime.format(new Date(note.created));
       row.append(text, signature);
       return row;
     });
     $('signed-notes').replaceChildren(...rows);
-    $('day-note-count').hidden = !notes.length;
-    $('day-note-count').textContent = notes.length + ' 张署名便签';
     $('read-day-notes').hidden = !notes.length;
+    $('read-day-notes').href = '/diary/?date=' + day + '#signed-notes';
     $('read-day-notes').querySelector('span').textContent = '阿川留了 ' + notes.length + ' 张便签';
-    document.querySelector('.adrian-note').classList.toggle('has-signed-notes', notes.length > 0);
   }
-  $('read-day-notes').onclick = () => {
-    const folder = document.querySelector('.adrian-note');
-    folder.open = true;
-    folder.querySelector('summary').focus();
-    folder.scrollIntoView({ block: 'center' });
-  };
+
+  async function refreshNotes() {
+    const date = day, ticket = ++dayVersion;
+    try {
+      const notes = live ? (await api('day?date=' + date + '&view=notes')).notes : [];
+      if (ticket !== dayVersion) return;
+      renderSignedNotes(notes);
+      $('memo-load-status').textContent = '';
+      $('reload-notes').hidden = true;
+      if (linkedNote) {
+        const target = $(linkedNote) ?? $('signed-notes');
+        linkedNote = null;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ block: 'nearest' });
+      }
+    } catch {
+      if (ticket !== dayVersion) return;
+      $('memo-load-status').textContent = '暂时读不到阿川的署名便签。';
+      $('reload-notes').hidden = false;
+    }
+  }
 
   function editorField() { return editor === 'meals' ? $('meal-field').value : 'period'; }
   function editorInput() { return editor === 'meals' ? $('meal-text') : $('period-value'); }
@@ -174,6 +191,7 @@ export function createDiaryPage(repaint) {
   }
 
   async function refreshDay() {
+    if (!detailOpen) return refreshNotes();
     const date = day, ticket = ++dayVersion;
     try {
       const data = live ? await api('day?date=' + date) : { fields: previewFields(date), messages: [], canAsk: false };
@@ -199,22 +217,26 @@ export function createDiaryPage(repaint) {
     }
   }
 
-  function select(date, open) {
+  function select(date, open, noteTarget) {
     const month = date.slice(0, 7);
     const changed = shownMonth !== month;
+    const returning = detailOpen && !open;
     day = date;
     detailOpen = open;
+    linkedNote = noteTarget;
     ++dayVersion;
     if (changed) { shownMonth = month; monthMarks = {}; $('month-status').textContent = ''; }
     fields = {}; messages = []; loaded = false; canAsk = false; editor = null;
     $('meal-field').value = 'lunch';
     $('record-status').textContent = '';
+    $('memo-load-status').textContent = '';
+    $('reload-notes').hidden = true;
     $('ask-status').textContent = asking.has(day) ? '阿川正在写…' : '';
     $('ask-text').value = questions.get(day)?.text ?? '';
     $('reload-day').hidden = true;
     renderRecords(); renderEditor(); renderSignedNotes([]); renderMessages();
-    if (changed || !open) refreshMonth();
-    if (open) refreshDay();
+    if (changed || returning) refreshMonth();
+    refreshDay();
   }
 
   for (const button of editorButtons) button.onclick = () => {
@@ -304,11 +326,12 @@ export function createDiaryPage(repaint) {
     ask(text, requestId);
   };
   $('reload-day').onclick = () => { $('record-status').textContent = ''; refreshMonth(); refreshDay(); };
+  $('reload-notes').onclick = refreshNotes;
   window.addEventListener('storage', event => {
     if (!live && (event.key === null || event.key.startsWith(previewPrefix))) { refreshMonth(); if (detailOpen) refreshDay(); }
   });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { refreshMonth(); if (detailOpen) refreshDay(); }
+    if (!document.hidden) { refreshMonth(); refreshDay(); }
   });
   return { select, marks: date => monthMarks[date] ?? {} };
 }

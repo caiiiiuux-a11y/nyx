@@ -186,12 +186,14 @@ async function api(req, res, url) {
     }
     if (url.pathname === '/app/calendar/day' && req.method === 'GET') {
       const date = url.searchParams.get('date');
+      const notes = store.calendar.notes(date, target.route);
+      if (url.searchParams.get('view') === 'notes') return json(res, 200, { date, notes });
       const fields = store.calendar.fields(date);
       const thread = store.calendar.threadFor(date, target.route);
       const messages = thread ? (await store.history({ thread })).messages : [];
       messages.push(...store.calendar.stars(date, target.route, thread));
       messages.sort((a, b) => a.id - b.id);
-      return json(res, 200, { date, fields, messages, notes: store.calendar.notes(date, target.route), canAsk: target.ready });
+      return json(res, 200, { date, fields, messages, notes, canAsk: target.ready });
     }
     if (req.method !== 'POST') throw new RequestError(405, '请求方法有误。');
     const input = await readJson(req, 8192);
