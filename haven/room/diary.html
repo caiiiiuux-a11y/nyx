@@ -13,36 +13,33 @@
 </head>
 <body data-page="diary">
   <main class="diary">
-    <header class="diary-top">
-      <a href="/" class="back-home"><span aria-hidden="true">‹</span> 小屋</a>
-      <button type="button" id="back-month" class="back-home" aria-label="返回月历" hidden>‹ 月历</button>
-      <h1 id="sheet-title">日历手账</h1>
-      <button type="button" id="today">今天</button>
-    </header>
     <div class="spread">
     <section class="month" id="month-page" aria-label="日历">
-      <div class="month-bar">
-        <img class="window-rabbit" src="/room/assets/window-rabbit.webp" alt="">
+      <header class="month-bar">
         <button type="button" id="previous" aria-label="上个月">‹</button>
-        <h2 lang="en"><span id="month-name"></span> <small id="month-year"></small></h2>
+        <h1 lang="en"><span id="month-name"></span> <small id="month-year"></small></h1>
         <button type="button" id="next" aria-label="下个月">›</button>
-      </div>
+      </header>
+      <div class="journal">
+      <span class="journal-paper" aria-hidden="true"></span>
       <div class="calendar-paper">
-        <i class="tape left-tape" aria-hidden="true"></i><i class="tape right-tape" aria-hidden="true"></i>
+        <span class="calendar-leaf" aria-hidden="true"></span>
         <div class="week" aria-hidden="true">
           <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
         </div>
         <div id="diary-days" role="group" aria-label="选择日记日期"></div>
-        <div class="legend" aria-label="按贴纸高亮日期">
-          <button type="button" data-kind="meals" aria-pressed="false"><img src="/room/assets/blue-rim-teacup.webp" alt="">餐食</button>
-          <button type="button" data-kind="period" aria-pressed="false"><img src="/room/assets/pin-rabbit.png" alt="">经期</button>
-          <button type="button" data-kind="note" aria-pressed="false"><img src="/room/assets/mini-blue-book.webp" alt="">便签</button>
-          <button type="button" data-kind="star" aria-pressed="false"><img src="/room/assets/paper-star.webp" alt="">纸星</button>
+        <p id="month-status" class="status" role="status"></p>
+        <div class="calendar-foot">
+          <div class="legend" role="group" aria-label="按贴纸高亮日期">
+            <button type="button" data-kind="meals" aria-pressed="false"><img src="/room/assets/blue-rim-teacup.webp" alt="">餐食</button>
+            <button type="button" data-kind="period" aria-pressed="false"><img src="/room/assets/pin-rabbit.png" alt="">经期</button>
+            <button type="button" data-kind="note" aria-pressed="false"><img src="/room/assets/mini-blue-book.webp" alt="">便签</button>
+            <button type="button" data-kind="star" aria-pressed="false"><img src="/room/assets/paper-star.webp" alt="">纸星</button>
+          </div>
+          <img class="window-rabbit" src="/room/assets/window-rabbit.webp" width="398" height="464" alt="">
         </div>
       </div>
-      <p id="month-status" class="status" role="status"></p>
       <section class="memo-board" id="memo-board" aria-labelledby="memo-title">
-        <span class="memo-paper" aria-hidden="true"></span>
         <header class="memo-dateline">
           <h2 id="memo-title"><time id="memo-date"></time><span id="memo-week"></span><span class="memo-title-word">便签</span></h2>
           <button type="button" id="open-detail" class="turn-page">明细 <span aria-hidden="true">›</span></button>
@@ -70,9 +67,11 @@
         <button type="button" id="reload-notes" class="text-button" hidden>重新读取便签</button>
         <p id="memo-save-status" class="status" role="status"></p>
       </section>
+      </div>
     </section>
     <section class="daily" id="detail-page" aria-labelledby="day-heading" hidden>
-      <header class="day-heading"><div><h2 id="day-heading" tabindex="-1"></h2><span id="day-week"></span></div><img src="/room/assets/mailbox-bird.webp" alt=""></header>
+      <button type="button" id="back-month" aria-label="返回月历">‹ 月历</button>
+      <header class="day-heading"><div><h1 id="day-heading" tabindex="-1"></h1><span id="day-week"></span></div><img src="/room/assets/mailbox-bird.webp" alt=""></header>
       <a id="read-day-notes" class="note-jump" hidden><img src="/room/assets/mini-blue-book.webp" alt=""><span></span>　›</a>
       <div id="day-summary" class="day-summary"></div>
       <div class="record-actions">
@@ -106,6 +105,10 @@
       </details>
       <p id="save-status" class="status" role="status"></p>
     </section>
+    <nav class="diary-links" aria-label="手账导航">
+      <a href="/">‹ 小屋</a>
+      <button type="button" id="today">回到今天</button>
+    </nav>
     </div>
   </main>
 </body>

@@ -8,50 +8,79 @@ body[data-page="diary"] {
   background: radial-gradient(ellipse at center, #fffaf6 0 2px, transparent 3px) 5px 5px / 22px 22px, #f8e9ed;
   min-height: 100vh;
 }
-.diary { max-width: 676px; margin: 0 auto; padding: 0 clamp(12px, 3.4vw, 30px) 40px; }
+.diary { max-width: 676px; margin: 0 auto; padding: 6px clamp(12px, 3.4vw, 30px) 24px; }
 .diary :is(button, a) { touch-action: manipulation; }
 .diary button { border: 0; background: transparent; }
 .diary button:disabled { opacity: .56; cursor: default; }
 .diary [hidden] { display: none !important; }
 .diary :is(input, select, textarea):focus-visible { outline: 2px solid #798fa4; outline-offset: 2px; }
-.diary-top {
-  position: relative; isolation: isolate; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-  min-height: 76px; padding: 8px 12px 19px; text-align: center;
-}
-.diary-top::before {
-  content: ""; position: absolute; z-index: -1; inset: 0 -12px;
-  background: repeating-linear-gradient(90deg,#e9aeb9 0 18px,#f3c5cb 18px 26px,#f8e8d9 26px 46px,#f3decf 46px 52px);
-  -webkit-mask: linear-gradient(#000 0 0) top / 100% calc(100% - 13px) no-repeat, radial-gradient(ellipse 26px 14px at 26px 0,#000 97%,transparent 100%) bottom left / 52px 14px repeat-x;
-  mask: linear-gradient(#000 0 0) top / 100% calc(100% - 13px) no-repeat, radial-gradient(ellipse 26px 14px at 26px 0,#000 97%,transparent 100%) bottom left / 52px 14px repeat-x;
-}
-.diary-top h1 { font: 650 1.05rem/1.6 var(--room-cn); letter-spacing: .14em; margin: 0; color: #644648; }
-.diary-top .back-home, .diary-top #today {
-  display: inline-flex; align-items: center; gap: 4px; justify-self: start; justify-content: center;
-  min-height: 35px; min-width: 54px; padding: 3px 10px; border: 1px solid #d9b2a5; border-radius: 17px;
-  background: #fff8ee; color: var(--ink); text-decoration: none; font-size: .8rem;
-}
-.back-home span { font: 1.4rem/.8 Georgia,serif; }
-.diary-top #today { justify-self: end; }
 .spread { max-width: 580px; margin: 0 auto; }
+.diary-links { display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: 12px; }
+.diary-links :is(a, button), .daily #back-month {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 2px 6px;
+  color: #785c61; font-size: .8rem; text-decoration: underline dotted #cbaeb1; text-underline-offset: 4px;
+}
 .month { min-width: 0; }
-.month-bar { position: relative; display: flex; align-items: center; justify-content: center; gap: clamp(8px,2.3vw,20px); min-height: 96px; }
-.window-rabbit { position: absolute; left: 1.5%; bottom: 5px; height: 73px; width: 62px; object-fit: contain; transform: rotate(-4deg); pointer-events: none; }
-.month-bar h2 { display: flex; gap: 9px; align-items: baseline; margin: 0; line-height: 1; }
+.month-bar { display: flex; align-items: center; justify-content: center; gap: clamp(7px,2.1vw,16px); min-height: clamp(67px,12vw,88px); }
+.month-bar h1 { display: flex; gap: 9px; align-items: baseline; margin: 0; line-height: 1; }
 #month-name { color: #b65e77; font: bold clamp(2.65rem,7vw,3.8rem)/1 Georgia,serif; font-style: italic; letter-spacing: -.055em; }
 #month-year { color: #785e5e; font: 600 .88rem/1.2 var(--room-cn); letter-spacing: .13em; }
 .month-bar button { width: 36px; height: 40px; font: 1.6rem/1 Georgia,serif; color: #97566b; border-radius: 50%; }
 .month-bar button:hover { background: #fff4f3; }
-.calendar-paper, .daily { position: relative; background: #fffdf7; box-shadow: 0 3px 0 #ead7cd, 0 7px 15px #89545f12; border: 1px solid var(--edge); }
-.calendar-paper { padding: 16px 8px 4px; border-radius: 9px 12px 11px 7px; }
-.tape { position: absolute; top: -4px; height: 13px; width: 43px; opacity: .88; pointer-events: none; }
-.left-tape { left: -6px; width: 51px; height: 19px; top: -6px; transform: rotate(-20deg); background: url('/room/assets/sky-dot-washi.webp') center / contain no-repeat; }
-.right-tape { right: -5px; transform: rotate(24deg); background: repeating-linear-gradient(90deg,#e9cc9e 0 5px,#f2dfbb 5px 8px); }
+.journal {
+  --sheet-pad: clamp(16px, 4.5vw, 28px);
+  position: relative; isolation: isolate; margin: 0 clamp(7px, 1.8vw, 12px) 45px; padding-top: 5px;
+}
+.journal-paper, .journal::before, .journal::after { position: absolute; pointer-events: none; }
+.journal-paper {
+  z-index: -1; inset: -2px -3px;
+  border: 14px solid transparent; border-image: url('/room/assets/paper-cotton.webp') 32 fill / 14px round;
+  background: #fff9ef content-box;
+  /* A width-based slope stays inside the page even when the notes grow tall. */
+  transform: skewY(-1.4deg);
+  filter: drop-shadow(1px 2px 1px #765a494d) drop-shadow(2px 5px 3px #6750482e);
+}
+.journal::before, .journal::after {
+  content: ""; height: clamp(96px, 22vw, 135px); background-position: center bottom;
+  background-size: 100% auto; background-repeat: no-repeat; filter: drop-shadow(1px 2px 2px #72596945);
+}
+.journal::before {
+  z-index: -3; left: 9%; right: -4px; bottom: -30px; transform: rotate(2.8deg);
+  transform-origin: 90% bottom; background-image: url('/room/assets/paper-dot-blue.webp');
+}
+.journal::after {
+  z-index: -2; left: -5px; right: 8%; bottom: -24px; transform: rotate(-2.4deg);
+  transform-origin: 10% bottom; background-image: url('/room/assets/paper-grid.webp');
+}
+.calendar-paper {
+  --rabbit-width: clamp(49px, 14.4vw, 70px);
+  position: relative; isolation: isolate; z-index: 1; margin-inline: 3px;
+  padding: 13px clamp(9px, 2vw, 14px) 4px;
+}
+.calendar-leaf, .calendar-paper::before {
+  position: absolute; pointer-events: none;
+  border: 11px solid transparent; border-image-slice: 32 fill; border-image-width: 11px; border-image-repeat: round;
+  filter: drop-shadow(0 1px 1px #7a5b4b52);
+}
+.calendar-paper::before {
+  content: ""; z-index: -2; inset: 2px 2px -3px -1px; transform: rotate(-.4deg);
+  border-image-source: url('/room/assets/paper-cotton.webp');
+}
+.calendar-leaf {
+  z-index: -1; inset: 0; background: #fff9ee content-box;
+  border-image-source: url('/room/assets/paper-grid.webp'); border-image-repeat: stretch;
+}
+.calendar-leaf::before {
+  content: ""; position: absolute; z-index: 1; left: 1%; top: -16px; width: 43px; height: 16px;
+  background: url('/room/assets/sky-dot-washi.webp') center / contain no-repeat; transform: rotate(-13deg); opacity: .85;
+}
+.calendar-leaf::after { content: ""; position: absolute; inset: -5px; background: #fffbf057; filter: blur(2px); }
 .week, #diary-days { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); }
 .week { margin-bottom: 4px; text-align: center; color: #806c69; font-size: .76rem; }
 .week span:nth-last-child(-n+2) { color: var(--rose); }
-.day-cell { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px; min-width: 0; min-height: 51px; padding: 4px 1px 0; border-radius: 7px; }
-.stamp { display: grid; place-items: center; width: 33px; height: 32px; position: relative;
-  font: 550 .94rem/1 "Trebuchet MS",var(--room-cn); font-variant-numeric: tabular-nums; }
+.day-cell { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 42px; padding: 1px 0; border-radius: 7px; }
+.stamp { display: grid; place-items: center; width: 32px; height: 29px; position: relative;
+  font: 550 1rem/1 "Trebuchet MS",var(--room-cn); font-variant-numeric: tabular-nums; }
 .stamp-shape { position: absolute; inset: 2px 1px 0; border-radius: 48% 50% 45% 49%; background: var(--stamp,transparent); }
 .digits { position: relative; top: 1px; }
 .day-cell.weekend { --stamp: #fceded; }
@@ -73,45 +102,29 @@ body[data-page="diary"] {
 @media (hover:hover) { .day-cell:hover { background-color: #fbf0ec; } }
 .day-cell.dim .stamp { opacity: .52; }
 .day-cell[aria-pressed="true"] .stamp { opacity: 1; }
-.marks { display: flex; justify-content: center; width: 100%; height: 12px; gap: 0; }
-.marks img { min-width: 0; width: min(23%,13px); height: 12px; object-fit: contain; }
-.legend { display: flex; justify-content: center; flex-wrap: wrap; border-top: 1px dashed #e5cfc7; padding-top: 2px; margin-top: 3px; gap: 2px; }
-.legend button { min-height: 38px; display: inline-flex; gap: 4px; align-items: center; padding: 2px 7px; color: #73594e; font-size: .77rem; border-radius: 12px; }
-.legend button[aria-pressed="true"] { color: #73384c; background: #f9e4e8; box-shadow: inset 0 0 0 1px #dfb7bf; }
-.legend img { width: 23px; height: 23px; object-fit: contain; }
-.memo-board {
-  --sheet-pad: clamp(16px, 4.5vw, 28px);
-  position: relative; isolation: isolate; margin: 23px clamp(7px, 1.8vw, 12px) 45px;
-  padding: 18px var(--sheet-pad) 21px;
+.marks { display: flex; justify-content: center; width: 100%; height: 10px; }
+.marks img { min-width: 0; width: min(24%,12px); height: 10px; object-fit: contain; }
+.calendar-foot {
+  position: relative; display: flex; align-items: center; margin-top: 2px;
+  min-height: calc(var(--rabbit-width) + 1px); padding-right: calc(var(--rabbit-width) - 7px); border-top: 1px dashed #dec8b4;
 }
-.memo-paper, .memo-board::before, .memo-board::after { position: absolute; pointer-events: none; }
-.memo-paper {
-  z-index: -1; inset: -2px -3px;
-  border: 14px solid transparent; border-image: url('/room/assets/paper-cotton.webp') 32 fill / 14px round;
-  background: #fff9ef content-box;
-  /* The slope depends on the sheet's width, so even a long entry stays inside the page. */
-  transform: skewY(-1.4deg);
-  filter: drop-shadow(1px 2px 1px #765a494d) drop-shadow(2px 5px 3px #6750482e);
-}
-.memo-board::before, .memo-board::after {
-  content: ""; height: clamp(96px, 22vw, 135px); background-position: center bottom;
-  background-size: 100% auto; background-repeat: no-repeat; filter: drop-shadow(1px 2px 2px #72596945);
-}
-.memo-board::before {
-  z-index: -3; left: 9%; right: -4px; bottom: -30px; transform: rotate(2.8deg);
-  transform-origin: 90% bottom; background-image: url('/room/assets/paper-dot-blue.webp');
-}
-.memo-board::after {
-  z-index: -2; left: -5px; right: 8%; bottom: -24px; transform: rotate(-2.4deg);
-  transform-origin: 10% bottom; background-image: url('/room/assets/paper-grid.webp');
-}
-.memo-dateline, .memo-dateline h2, .memo-byline { display: flex; align-items: center; }
-.memo-dateline { flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; padding-bottom: 10px; }
-.memo-dateline::before {
-  content: ""; position: absolute; top: -10px; right: 18%; width: clamp(46px, 10vw, 59px); height: 19px;
+.calendar-foot::after {
+  content: ""; position: absolute; right: 22%; bottom: -10px; width: clamp(48px, 10vw, 59px); height: 19px;
   background: url('/room/assets/sky-dot-washi.webp') center / contain no-repeat; opacity: .84;
   transform: rotate(8deg); pointer-events: none;
 }
+.window-rabbit {
+  position: absolute; width: var(--rabbit-width); height: auto; right: -12px; bottom: -11px;
+  transform: rotate(3deg); filter: drop-shadow(1px 2px 1px #80665533); pointer-events: none;
+}
+.legend { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; width: 100%; gap: 0 2px; }
+.legend button { min-height: 36px; display: inline-flex; align-items: center; gap: 3px; padding: 2px 3px; color: #73594e; font-size: .78rem; border-radius: 10px; }
+.legend button[aria-pressed="true"] { color: #73384c; background: #f9e4e8; box-shadow: inset 0 0 0 1px #dfb7bf; }
+.legend img { width: 20px; height: 20px; object-fit: contain; }
+#month-status:not(:empty) { margin: 4px 0; }
+.memo-board { position: relative; padding: 25px var(--sheet-pad) 21px; }
+.memo-dateline, .memo-dateline h2, .memo-byline { display: flex; align-items: center; }
+.memo-dateline { flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; padding-bottom: 10px; }
 .memo-dateline h2 { margin: 0; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 #memo-date { color: var(--rose); font: bold clamp(1.6rem,5vw,2rem)/1.2 Georgia,serif; letter-spacing: -.04em; }
 #memo-week { color: var(--muted); font: 500 .77rem/1.4 var(--room-cn); }
@@ -139,10 +152,11 @@ body[data-page="diary"] {
 }
 .signed-note time { display: block; margin-top: 3px; color: #626f77; font-size: .73rem; line-height: 1.6; }
 .signed-note:target { background: #e4ece770; border-radius: 5px; }
-.daily { min-width: 0; margin-top: 19px; padding: 17px clamp(14px,4vw,25px); border-radius: 10px 7px 13px 9px; background: #fff8ef; }
+.daily { min-width: 0; margin-top: 12px; padding: 12px clamp(14px,4vw,25px) 17px; border-radius: 10px 7px 13px 9px;
+  background: #fff8ef; border: 1px solid var(--edge); box-shadow: 0 3px 0 #ead7cd, 0 7px 15px #89545f12; }
 .day-heading { display: flex; align-items: center; justify-content: space-between; }
 .day-heading > div { display: flex; align-items: baseline; gap: 8px; }
-.day-heading h2 { margin: 0; color: var(--rose); font: bold 2rem/1.1 Georgia,serif; letter-spacing: -.04em; }
+.day-heading h1 { margin: 0; color: var(--rose); font: bold 2rem/1.1 Georgia,serif; letter-spacing: -.04em; }
 #day-week { color: var(--muted); font-size: .81rem; }
 .day-heading > img { width: 64px; height: 66px; object-fit: contain; transform: rotate(3deg); }
 .day-summary { margin: 9px 0 6px; display: grid; gap: 4px; }
@@ -194,20 +208,12 @@ details[open] > summary .fold-icon::after { content: '⌃'; }
 .note-jump img { width: 21px; height: 20px; object-fit: contain; margin-right: 4px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (min-width: 760px) {
-  .diary { padding-top: 14px; }
-  .diary-top { min-height: 83px; }
-  .diary-top::before { inset-inline: 0; border-radius: 14px 14px 0 0; }
-  .spread { max-width: 580px; }
-  .month-bar { min-height: 112px; }
-  .window-rabbit { height: 92px; width: 82px; left: 5%; }
-  .calendar-paper { padding: 22px 12px 6px; }
-  .day-cell { min-height: 57px; }
-  .stamp { width: 34px; height: 32px; font-size: 1.04rem; }
-  .daily { margin-top: 24px; }
+  .diary { padding-top: 12px; }
+  .day-cell { min-height: 46px; }
+  .stamp { width: 34px; height: 30px; font-size: 1.04rem; }
 }
 @media (max-width: 360px) {
   .diary { padding-inline: 9px; }
-  .diary-top::before { inset-inline: -9px; }
-  .legend button { padding-inline: 3px; }
-  .window-rabbit { width: 45px; height: 56px; left: 0; }
+  .legend { gap: 0; }
+  .legend button { padding-inline: 1px; }
 }

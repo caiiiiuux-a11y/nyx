@@ -166,9 +166,6 @@ function selectDay(date, open = detail, mode = 'replace', hash = '') {
   else if (mode === 'replace' || url.href !== location.href) history.replaceState(history.state, '', url);
   byId('month-page').hidden = open;
   byId('detail-page').hidden = !open;
-  document.querySelector('a.back-home').hidden = open;
-  byId('back-month').hidden = !open;
-  byId('sheet-title').textContent = open ? '当日明细' : '日历手账';
   byId('new-task').value = '';
   byId('save-status').textContent = '';
   byId('memo-save-status').textContent = '';
@@ -192,7 +189,12 @@ function changeMonth(offset) {
 
 byId('previous').onclick = () => changeMonth(-1);
 byId('next').onclick = () => changeMonth(1);
-byId('today').onclick = () => selectDay(new Date(), detail);
+byId('today').onclick = () => {
+  if (!selectDay(new Date(), detail)) return;
+  const target = detail ? byId('day-heading') : byId('diary-days').querySelector('[aria-current="date"]');
+  target?.focus({ preventScroll: true });
+  window.scrollTo(0, 0);
+};
 byId('open-detail').onclick = () => openDetails(selected);
 byId('back-month').onclick = () => {
   if (history.state?.fromMonth) history.back();
