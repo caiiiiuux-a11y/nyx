@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#faf2e9">
+  <title>Adrian’s Room · Iris &amp; Adrian’s Room</title>
+  <link rel="icon" href="/room/assets/pin-fawn.png">
+  <link rel="stylesheet" href="/room/shared.css">
+  <link rel="stylesheet" href="/room/adrian.css">
+  <script src="/room/nav.js" defer></script>
+  <script type="module" src="/room/adrian.js"></script>
+</head>
+<body data-page="living" class="room-layout">
+  <main class="adrian-room">
+    <header>
+      <a class="hallway-back" href="/living/"><span aria-hidden="true">‹</span><span lang="en">Hallway</span></a>
+      <h1 lang="en">Adrian’s Room</h1>
+    </header>
+    <div class="room-corner">
+      <img class="reading-chair" src="/room/assets/armchair-fawn.webp" width="441" height="405" alt="">
+      <button id="drawer" class="room-drawer" type="button" aria-expanded="false" aria-controls="inside" aria-label="打开记忆抽屉">
+        <span class="drawer-case" aria-hidden="true"><i></i><i></i></span>
+        <span class="drawer-front"><span class="drawer-label">记忆抽屉</span><span class="brass-pull" aria-hidden="true"></span></span>
+      </button>
+    </div>
+    <section id="inside" class="inside" aria-label="记忆抽屉" hidden>
+      <p id="private-notice" hidden>在连接 chatgptmemory 的本机小屋里可以翻阅记忆。</p>
+      <div id="drawer-tools" hidden>
+        <div class="filters" role="group" aria-label="抽屉视图">
+          <button type="button" id="show-buckets" aria-pressed="true">记忆桶</button>
+          <button type="button" id="show-graph" aria-pressed="false">记忆图谱</button>
+        </div>
+        <button type="button" id="refresh">刷新</button>
+      </div>
+      <p id="sign-in" class="quiet" hidden><a href="/app/memory/dashboard" target="_blank" rel="noopener noreferrer">登录本机 Ombre ↗</a></p>
+      <section id="graph" aria-label="记忆图谱" hidden>
+        <label for="concept">概念</label>
+        <select id="concept" aria-label="选择概念"></select>
+        <div id="constellation" aria-label="与当前概念直接相关的概念">
+          <canvas id="links" aria-hidden="true"></canvas>
+          <div id="points"></div>
+        </div>
+        <h2 id="concept-heading">关联记忆</h2>
+      </section>
+      <div id="shelf" hidden>
+        <form id="search-form" role="search" autocomplete="off">
+          <label class="visually-hidden" for="search">搜索记忆</label>
+          <input id="search" name="q" type="search" placeholder="搜索记忆…" maxlength="160" spellcheck="false" enterkeyhint="search">
+          <button type="submit">搜索</button>
+        </form>
+        <div class="shelf-tools">
+          <div class="filters" role="group" aria-label="记忆筛选">
+            <button type="button" id="all" aria-pressed="true">全部</button>
+            <button type="button" id="pinned" aria-pressed="false">已钉选</button>
+          </div>
+        </div>
+        <p id="list-status" class="quiet" role="status"></p>
+        <ul id="bucket-list"></ul>
+        <nav id="pagination" aria-label="记忆分页" hidden>
+          <button id="previous" type="button">上一页</button>
+          <span id="page-number"></span>
+          <button id="next" type="button">下一页</button>
+        </nav>
+      </div>
+      <article id="entry" hidden>
+        <div class="entry-tools">
+          <button id="back-list" type="button">‹ 记忆目录</button>
+          <button id="pin-entry" type="button" aria-pressed="false" hidden>钉选</button>
+        </div>
+        <form id="unpin-form" hidden>
+          <label for="importance">取消钉选后的重要度</label>
+          <select id="importance"></select>
+          <button type="submit">确认取消钉选</button>
+          <button type="button" id="cancel-unpin">返回</button>
+        </form>
+        <p id="entry-status" class="quiet" role="status"></p>
+        <h2 id="entry-title" tabindex="-1"></h2>
+        <p id="entry-meta" class="entry-meta"></p>
+        <div id="entry-content"></div>
+      </article>
+    </section>
+  </main>
+  <nav id="room-nav" aria-label="主导航"></nav>
+</body>
+</html>

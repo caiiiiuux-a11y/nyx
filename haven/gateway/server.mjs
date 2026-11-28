@@ -49,7 +49,21 @@ const lab = (memoryMode || providerMode) ? (await import('./ombre-lab.mjs')).cre
 const storeOptions = memoryMode ? { memoryLab: lab } : {};
 let fixture;
 let live;
+let memoryDrawer;
+let memoryDashboard;
 if (liveMode) {
+  if (process.env.HAVEN_MEMORY_DASHBOARD_ORIGIN) {
+    memoryDashboard = new URL(process.env.HAVEN_MEMORY_DASHBOARD_ORIGIN);
+    if (memoryDashboard.protocol !== 'http:' || memoryDashboard.hostname !== '127.0.0.1' ||
+        memoryDashboard.href !== memoryDashboard.origin + '/') {
+      throw new Error('The memory drawer requires a loopback dashboard origin.');
+    }
+    if (values.db !== undefined && memoryDashboard.port === '8002') {
+      throw new Error('Use a separate dashboard fixture with a temporary chat database.');
+    }
+    const { createOmbreBuckets } = await import('./ombre-buckets.mjs');
+    memoryDrawer = createOmbreBuckets(memoryDashboard.origin);
+  }
   const { createLiveRoutes } = await import('./live-routes.mjs');
   const { createLocalCredentialStore } = await import('./local-credential-store.mjs');
   live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
@@ -146,16 +160,42 @@ function historyOptions(params) {
 }
 
 async function api(req, res, url) {
-  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
-    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/provider-cache'].includes(url.pathname)) {
-    throw new RequestError(404, '试验线路只开放聊天');
-  }
   const origin = req.headers.origin;
   if ((origin && origin !== url.origin) || req.headers['sec-fetch-site'] === 'cross-site') {
     throw new RequestError(403, '此操作仅在本机小屋可用');
   }
   if (live && req.method === 'POST' && origin !== url.origin) {
     throw new RequestError(403, '请从本机小屋内操作。');
+  }
+  if (url.pathname.startsWith('/app/memory/')) {
+    if (!memoryDrawer) throw new RequestError(404, '这个小屋没有连接本机记忆柜。');
+    if (url.pathname === '/app/memory/dashboard' && req.method === 'GET') {
+      // Ombre issues a host-only session cookie. Stay on the hostname used by this browser.
+      const target = new URL(memoryDashboard);
+      target.hostname = url.hostname;
+      res.writeHead(302, { Location: target.href });
+      return res.end();
+    }
+    if (req.headers['x-haven-drawer'] !== '1') throw new RequestError(403, '请从本机记忆抽屉打开。');
+    const path = /^\/app\/memory\/(network|buckets)(?:\/([^/]+)(\/pin)?)?$/.exec(url.pathname);
+    if (!path || (path[1] === 'network' && path[2])) throw new RequestError(404, '记忆接口不存在。');
+    if (req.method !== (path[3] ? 'POST' : 'GET')) throw new RequestError(405, '请求方法有误。');
+    // Only the dashboard's own browser session goes to the configured loopback service.
+    const session = (req.headers.cookie || '').split(';').map(part => part.trim())
+      .find(part => /^ombre_session=[A-Za-z0-9_-]{1,256}$/.test(part));
+    if (!session) throw new RequestError(401, '请先登录本机 Ombre，再刷新抽屉。');
+    if (path[1] === 'network') return json(res, 200, await memoryDrawer.network(session));
+    if (!path[2]) return json(res, 200, await memoryDrawer.list(session, url.searchParams));
+    let id;
+    try { id = decodeURIComponent(path[2]); }
+    catch { throw new RequestError(400, '记忆编号无效。'); }
+    const result = path[3] ? await memoryDrawer.pin(session, id, await readJson(req, 512))
+      : await memoryDrawer.detail(session, id);
+    return json(res, 200, result);
+  }
+  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
+    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/provider-cache'].includes(url.pathname)) {
+    throw new RequestError(404, '接口不存在。');
   }
   if (live && url.pathname.startsWith('/app/routes/')) {
     if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
@@ -234,12 +274,17 @@ function asset(req, res, url) {
   if (/[\\:\0]/.test(pathname)) throw new RequestError(404, '找不到页面');
   let file = resolve(dist, '.' + pathname);
   if (!inside(dist, file)) throw new RequestError(404, '找不到页面');
-  if (['/chat', '/diary', '/living', '/living/pocket', '/other'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
+  if (['/chat', '/diary', '/living', '/living/pocket', '/living/adrian', '/other'].includes(pathname) || pathname.endsWith('/')) file = resolve(file, 'index.html');
   if (!existsSync(file) || !inside(realpathSync(dist), realpathSync(file)) || !statSync(file).isFile()) {
     throw new RequestError(404, '找不到页面');
   }
   const ext = extname(file);
   res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
+  if (memoryDrawer && file === resolve(dist, 'living/adrian/index.html')) {
+    res.setHeader('Content-Security-Policy', privateCsp);
+    const html = readFileSync(file, 'utf8').replace('<html ', '<html data-memory-drawer="local" ');
+    return res.end(req.method === 'HEAD' ? undefined : html);
+  }
   if (file === resolve(dist, 'chat/index.html') || file === resolve(dist, 'other/index.html') ||
       (!labMode && file === resolve(dist, 'living/pocket/index.html'))) {
     res.setHeader('Content-Security-Policy', privateCsp);
