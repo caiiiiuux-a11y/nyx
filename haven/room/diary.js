@@ -1,5 +1,6 @@
 import { dateKey, readNote, writeNote } from './calendar-store.js';
 import { createDiaryPage } from './diary-page.js';
+import { setupStorybook } from './storybook.js';
 
 const byId = id => document.getElementById(id);
 const monthName = new Intl.DateTimeFormat('en', { month: 'short' });
@@ -14,7 +15,7 @@ let detail = new URLSearchParams(location.search).get('view') === 'day';
 const notes = document.querySelectorAll('[data-note-field]');
 const stickers = {
   meals: ['餐食', 'blue-rim-teacup.webp'], period: ['经期', 'pin-rabbit.png'],
-  note: ['便签或待办', 'mini-blue-book.webp'], star: ['页边留言', 'paper-star.webp']
+  note: ['便签或待办', 'mini-blue-book.webp'], star: ['阿川的日记', 'paper-star.webp']
 };
 const page = createDiaryPage(paintCalendar);
 let filter = null;
@@ -153,7 +154,9 @@ function selectDay(date, open = detail, mode = 'replace', hash = '') {
     if (unsaved) return false;
   }
   const noteTarget = /^#(?:signed-notes|signed-note-\d+)$/.test(hash) ? hash.slice(1) : null;
+  const bookTarget = hash === '#star-heading' || hash === '#storybook' ? byId(hash.slice(1)) : null;
   if (noteTarget) open = false;
+  if (bookTarget) open = true;
   selected = date;
   detail = open;
   entry = readNote(selected);
@@ -172,6 +175,10 @@ function selectDay(date, open = detail, mode = 'replace', hash = '') {
   for (const note of notes) note.querySelector('textarea').hidden = true;
   page.select(dateKey(date), open, noteTarget);
   paintDay();
+  if (bookTarget) {
+    if (bookTarget.id === 'storybook') bookTarget.open = true;
+    requestAnimationFrame(() => bookTarget.scrollIntoView({ block: 'start' }));
+  }
   return true;
 }
 
@@ -247,3 +254,4 @@ window.addEventListener('storage', event => {
   paintDay();
 });
 selectDay(selected, detail, 'replace', location.hash);
+setupStorybook();

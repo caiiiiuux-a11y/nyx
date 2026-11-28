@@ -251,12 +251,12 @@ function usageButton(m) {
 function appendMemoryReceipt(content, tool, opening = false) {
   if (tool.scope === 'calendar') {
     if (tool.name === 'calendar_reply' || tool.name === 'calendar_note') {
-      const action = tool.name === 'calendar_note' ? '已留下署名便签' : '已贴纸星';
-      content.append(element('p', 'receipt-status', ['日历手账', tool.date, tool.status === 'ok' ? action : '留言待核对'].filter(Boolean).join(' · ')));
+      const note = tool.name === 'calendar_note';
+      const action = note ? '已留下署名便签' : '已写入阿川的日记本 · 纸星';
+      content.append(element('p', 'receipt-status', ['日历手账', tool.date, tool.status === 'ok' ? action : '写入待核对'].filter(Boolean).join(' · ')));
       if (tool.output) content.append(element('blockquote', '', tool.output));
       if (tool.status === 'ok' && /^\d{4}-\d{2}-\d{2}$/.test(tool.date)) {
-        const note = tool.name === 'calendar_note';
-        const day = element('a', 'receipt-caption', note ? '看这张便签 ›' : '打开这天的明细 ›');
+        const day = element('a', 'receipt-caption', note ? '看这张便签 ›' : '翻到这天的日记 ›');
         const anchor = Number.isSafeInteger(tool.noteId) ? '#signed-note-' + tool.noteId : '#signed-notes';
         day.href = '/diary/?date=' + tool.date + (note ? anchor : '&view=day#star-heading');
         content.append(day);

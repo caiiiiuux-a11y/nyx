@@ -35,6 +35,44 @@ function stream(delta, finish_reason = 'stop') {
     { headers: { 'content-type': 'text/event-stream' } });
 }
 
+test('a story stays in its book across dates and retries without marking the diary or the memo board', async t => {
+  let store, calls = 0;
+  const routes = createLiveRoutes({ baseURL: 'https://fixture.example/v1', model, apiKey: 'fixture-key',
+    readCalendar: () => assert.fail('Story requested calendar data'),
+    personalMemory: { listTools: () => assert.fail('Story requested tools'), surface: () => assert.fail('Story requested a memory') },
+    fetchImpl: async (_, opts) => {
+      const body = JSON.parse(opts.body);
+      assert.match(body.messages[0].content, /故事本/);
+      assert.equal(body.tools, undefined);
+      if (++calls === 1) return new Response(null, { status: 502 });
+      if (body.messages.at(-1).content === '请接着讲。') {
+        assert.ok(body.messages.some(m => m.role === 'assistant' && m.content === '纸船向着月亮开去。'));
+        return stream({ content: '纸船又驶过一座桥。' });
+      }
+      return stream({ content: '纸船向着月亮开去。' });
+    } });
+  store = openStore(':memory:', { enableCalendar: true, complete: routes.complete, models: ['iris-demo-a'],
+    modelsForRoute: id => routes.active(id).models, embedder: false, resumePendingOnRead: false });
+  t.after(() => store.close());
+  routes.select(store, { route: 'gemini', model });
+  const target = routes.calendarTarget(store);
+  assert.equal(store.calendar.storyThreadFor(target.route), undefined);
+  const thread = store.calendar.openStorybook(target);
+  assert.equal(store.calendar.openStorybook(target), thread);
+  assert.equal(store.calendar.storyThreadFor('other'), undefined);
+  assert.ok(!store.listWindows().windows.some(w => w.id === thread));
+  const draft = { thread, requestId: 'moon-story', text: '讲一个纸船的故事。' };
+  await assert.rejects(store.send(draft), { status: 503 });
+  assert.equal((await store.history({ thread })).messages[0].meta.retryRequestId, draft.requestId);
+  const sent = await store.send(draft);
+  assert.deepEqual(await store.send(draft), sent);
+  assert.equal(calls, 2);
+  assert.equal((await store.history({ thread })).messages.at(-1).text, '纸船向着月亮开去。');
+  const sequel = await store.send({ thread, requestId: 'moon-story-next', text: '请接着讲。' });
+  assert.equal(sequel.messages.at(-1).text, '纸船又驶过一座桥。');
+  assert.deepEqual(store.calendar.month('2026-11', target.route).marks, {});
+});
+
 test('date-bound and ordinary Gemini chats use the same calendar tool, with separate history, scopes and durable receipts', async t => {
   const date = '2026-11-26', other = '2026-11-25';
   let store, surfaces = 0, reads = 0, failAnswer = false, chosenDate = date;
@@ -84,10 +122,15 @@ test('date-bound and ordinary Gemini chats use the same calendar tool, with sepa
   await assert.rejects(store.send(draft), { status: 503 });
   assert.equal((await store.history({ thread })).messages[0].meta.retryRequestId, draft.requestId);
   assert.deepEqual(requests[0].tools.map(t => t.function.name), ['calendar_read', 'calendar_reply', 'calendar_note']);
+  const [, diaryTool, noteTool] = requests[0].tools.map(t => t.function);
+  assert.match(diaryTool.description, /日记本/);
+  assert.match(diaryTool.parameters.properties.text.description, /第一人称日记/);
+  assert.match(noteTool.parameters.properties.text.description, /写给 Iris 的便签/);
   assert.deepEqual(requests[0].tools[0].function.parameters.properties.date.enum, [date]);
   assert.doesNotMatch(JSON.stringify(requests[0]), /桂花藕粉|紫薯米糕|结束了/);
   assert.doesNotMatch(JSON.stringify(requests[1]), /桂花藕粉|结束了/);
   const resumed = await store.send(draft);
+  assert.match(requests.at(-1).messages.at(-1).content, /第一人称写这一天的日记/);
   const [receipt, star] = resumed.messages[1].meta.memoryTools;
   assert.deepEqual(receipt, { name: 'calendar_read', scope: 'calendar', date, category: 'meals', status: 'ok', output: '午餐　紫薯米糕' });
   assert.equal(star.name, 'calendar_reply');
@@ -117,6 +160,16 @@ test('date-bound and ordinary Gemini chats use the same calendar tool, with sepa
   assert.equal(store.calendar.stars(date, 'gemini', thread).length, 0);
   const blocked = store.calendar.post({ date: other, text: '跨页' }, { boundDate: date, turnId: 1, thread, route: 'gemini' });
   assert.equal(blocked.receipt.status, 'error');
+
+  chosenDate = date;
+  failAnswer = true;
+  await assert.rejects(store.send({ ...draft, requestId: 'interrupted-entry' }), { status: 503 });
+  const pending = (await store.history({ thread })).messages.at(-1);
+  assert.equal(pending.meta.retryRequestId, 'interrupted-entry');
+  // Recreate a shutdown between saving the tool's entry and committing the final chat answer.
+  store.calendar.post({ date, text: '已经写进本子的那一句。' },
+    { boundDate: date, turnId: (pending.id + 1) / 2, thread, route: 'gemini' });
+  assert.deepEqual(store.calendar.stars(date, 'gemini', thread).map(s => s.text), ['已经写进本子的那一句。']);
 });
 
 test('Adrian can choose to leave a signed note or simply talk, and a future wake can reuse the same dated store', async t => {

@@ -1,5 +1,4 @@
 import { dayMarks, mealLabels, periodLabels } from './diary-records.mjs';
-import { windowLocation } from './window-location.js';
 
 const $ = id => document.getElementById(id);
 const live = document.documentElement.hasAttribute('data-live-lab');
@@ -20,8 +19,8 @@ async function api(path, input) {
 export function createDiaryPage(repaint) {
   let day, shownMonth, monthMarks = {}, detailOpen = false, linkedNote = null;
   let monthVersion = 0, dayVersion = 0;
-  let fields = {}, messages = [], loaded = false, canAsk = false, editor;
-  const drafts = new Map(), questions = new Map(), writing = new Set(), asking = new Set();
+  let fields = {}, messages = [], loaded = false, editor;
+  const drafts = new Map(), writing = new Set();
 
   // A locally served preview can share this origin with the live room after an upgrade.
   function forgetPreview(date, field, expected) {
@@ -80,12 +79,8 @@ export function createDiaryPage(repaint) {
   }
 
   function syncButtons() {
-    const pending = messages.some(m => m.meta?.retryRequestId);
     for (const button of editorButtons) button.disabled = !loaded || writing.has(day);
     for (const control of $('record-form').elements) control.disabled = writing.has(day) || !loaded;
-    $('ask-text').disabled = !canAsk || asking.has(day) || pending;
-    $('ask-form').querySelector('button').disabled = $('ask-text').disabled;
-    for (const button of $('day-messages').querySelectorAll('button')) button.disabled = !canAsk || asking.has(day);
   }
 
   function renderRecords() {
@@ -104,37 +99,43 @@ export function createDiaryPage(repaint) {
   }
 
   function renderMessages() {
-    const rows = messages.map(message => {
-      const row = document.createElement('div');
-      row.className = 'day-message';
-      const who = document.createElement('strong'), text = document.createElement('p');
-      who.textContent = message.from === 'human' ? 'Iris' : '阿川';
-      text.textContent = message.text;
-      row.append(who, text);
+    const entries = [], prompts = [];
+    for (const message of messages) {
       const meta = message.meta ?? {};
       const receipts = meta.memoryTools ?? (meta.memoryTool ? [meta.memoryTool] : []);
+      const star = receipts.find(r => r.name === 'calendar_reply' && r.status === 'ok' && r.date === day);
+      const isEntry = message.from === 'ai' && (meta.calendarStar || star);
+      const row = document.createElement(isEntry ? 'article' : 'div');
+      row.className = isEntry ? 'diary-entry' : 'prompt-message';
+      const who = document.createElement('strong'), text = document.createElement('p');
+      who.textContent = message.from === 'human' ? 'Iris' : '阿川';
+      text.textContent = star?.output ?? message.text;
+      row.append(who, text);
+      if (isEntry) {
+        const seal = document.createElement('img');
+        seal.className = 'message-star'; seal.alt = '日记纸星'; seal.src = '/room/assets/paper-star.webp';
+        who.prepend(seal);
+        const written = new Date(message.ts);
+        if (message.ts && Number.isFinite(written.getTime())) {
+          const time = document.createElement('time');
+          time.dateTime = written.toISOString();
+          time.textContent = noteTime.format(written);
+          who.after(time);
+        }
+      }
       for (const receipt of receipts.filter(r => r.name === 'calendar_read')) {
         const note = document.createElement('small');
         const status = { ok: '查过', empty: '当天未记', error: '未能读取', uncertain: '待核对' }[receipt.status];
         note.textContent = [status, receipt.date, { meals: '餐食', period: '经期', notes: '阿川的便签' }[receipt.category]].filter(Boolean).join(' · ');
         row.append(note);
       }
-      if (meta.calendarStar || receipts.some(r => r.name === 'calendar_reply' && r.status === 'ok')) {
-        const seal = document.createElement('img');
-        seal.className = 'message-star'; seal.alt = '阿川贴的纸星'; seal.src = '/room/assets/paper-star.webp';
-        who.prepend(seal);
-      }
-      if (meta.retryRequestId) {
-        const retry = document.createElement('button');
-        retry.type = 'button';
-        retry.className = 'text-button';
-        retry.textContent = '重试这条留言';
-        retry.onclick = () => ask(message.text, meta.retryRequestId);
-        row.append(retry);
-      }
-      return row;
-    });
-    $('day-messages').replaceChildren(...rows);
+      if (isEntry) entries.push(row);
+      else prompts.push(row);
+    }
+    $('day-messages').replaceChildren(...entries);
+    $('day-prompts').replaceChildren(...prompts);
+    $('journal-prompts').hidden = !prompts.length;
+    $('journal-empty').hidden = !loaded || entries.length > 0;
     syncButtons();
   }
 
@@ -194,23 +195,21 @@ export function createDiaryPage(repaint) {
     if (!detailOpen) return refreshNotes();
     const date = day, ticket = ++dayVersion;
     try {
-      const data = live ? await api('day?date=' + date) : { fields: previewFields(date), messages: [], canAsk: false };
+      const data = live ? await api('day?date=' + date) : { fields: previewFields(date), messages: [] };
       if (ticket !== dayVersion) return;
       if (live) await adoptPreview(date, data);
       if (ticket !== dayVersion) return;
       fields = data.fields;
       messages = data.messages;
-      canAsk = data.canAsk;
       loaded = true;
       $('reload-day').hidden = !$('month-status').textContent;
-      if (!canAsk) $('ask-status').textContent = live ? '在杂物间连接 Gemini 后，就能在这页留言。' : '在本机小屋打开日历，就能向阿川留言。';
       renderRecords();
       renderEditor();
       renderSignedNotes(data.notes ?? []);
       renderMessages();
     } catch {
       if (ticket !== dayVersion) return;
-      loaded = false; canAsk = false;
+      loaded = false;
       $('record-status').textContent = '暂时读不到这一天的记录，请重新读取。';
       $('reload-day').hidden = false;
       syncButtons();
@@ -226,13 +225,12 @@ export function createDiaryPage(repaint) {
     linkedNote = noteTarget;
     ++dayVersion;
     if (changed) { shownMonth = month; monthMarks = {}; $('month-status').textContent = ''; }
-    fields = {}; messages = []; loaded = false; canAsk = false; editor = null;
+    fields = {}; messages = []; loaded = false; editor = null;
     $('meal-field').value = 'lunch';
     $('record-status').textContent = '';
     $('memo-load-status').textContent = '';
     $('reload-notes').hidden = true;
-    $('ask-status').textContent = asking.has(day) ? '阿川正在写…' : '';
-    $('ask-text').value = questions.get(day)?.text ?? '';
+    $('journal-prompts').open = false;
     $('reload-day').hidden = true;
     renderRecords(); renderEditor(); renderSignedNotes([]); renderMessages();
     if (changed || returning) refreshMonth();
@@ -289,42 +287,6 @@ export function createDiaryPage(repaint) {
   $('record-form').onsubmit = event => { event.preventDefault(); save(editorInput().value.trim()); };
   $('remove-record').onclick = () => save('');
 
-  async function ask(text, requestId) {
-    const date = day;
-    if (!text || !canAsk || asking.has(date)) return;
-    asking.add(date); syncButtons();
-    $('ask-status').textContent = '阿川正在写…';
-    let errorText = '';
-    try {
-      const { gatewayRequest } = await import('./gateway-adapter.js');
-      await gatewayRequest('send', { calendarDate: date, text, requestId, sourceThread: windowLocation('haven.gateway.last-window.v1').id });
-      questions.delete(date);
-      if (date === day) $('ask-text').value = '';
-      if (date.startsWith(shownMonth)) await refreshMonth();
-    } catch (error) { errorText = error.notice || '没有收到回复，请重试这条留言。'; }
-    finally {
-      asking.delete(date);
-      if (date === day) {
-        await refreshDay();
-        if (date === day) {
-          if (messages.some(m => m.meta?.retryRequestId === requestId)) {
-            questions.delete(date); $('ask-text').value = '';
-          }
-          $('ask-status').textContent = errorText;
-          syncButtons();
-        }
-      }
-    }
-  }
-  $('ask-text').oninput = () => questions.set(day, { text: $('ask-text').value });
-  $('ask-form').onsubmit = event => {
-    event.preventDefault();
-    const text = $('ask-text').value.trim();
-    if (!text) return;
-    const requestId = questions.get(day)?.requestId ?? crypto.randomUUID();
-    questions.set(day, { text, requestId });
-    ask(text, requestId);
-  };
   $('reload-day').onclick = () => { $('record-status').textContent = ''; refreshMonth(); refreshDay(); };
   $('reload-notes').onclick = refreshNotes;
   window.addEventListener('storage', event => {

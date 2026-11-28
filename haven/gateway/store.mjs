@@ -183,7 +183,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     readRelatedMessages(beforeId, excludedThread, route) {
       const through = Math.floor(beforeId / 2);
       let query = 'SELECT * FROM turns WHERE answer IS NOT NULL AND id<=?';
-      if (calendar) query += ' AND thread NOT IN (SELECT thread FROM calendar_windows)';
+      if (calendar) query += ' AND thread NOT IN (SELECT thread FROM calendar_bound_windows)';
       const params = [through];
       if (route) {
         query += " AND route=? AND COALESCE(json_extract(answer,'$.meta.route'),json_extract(answer,'$.meta.provider'),route)=?";
@@ -268,7 +268,8 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       if (archive) request.archive = archive;
     }
     if (modelsForRoute) request.route = prefs.route ?? turn.route;
-    if (page) request.calendarDate = page.day;
+    if (page?.day) request.calendarDate = page.day;
+    if (page?.kind === 'storybook') request.storybook = true;
     const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text, onText };
     if (modelsForRoute) {
       if (calendar) options.postCalendar = args => calendar.post(args, { boundDate: page?.day, route, thread, turnId: turn.id });
@@ -498,7 +499,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     const window = windows.get(input.thread);
     const route = modelsForRoute ? (input.route ?? window.route) : null;
     const page = calendar?.binding(window.id);
-    if (page && page.route !== route) throw new RequestError(409, '页边留言使用这本日历已连接的线路。');
+    if (page && page.route !== route) throw new RequestError(409, '这本手账使用已连接的线路。');
     const model = checkedModel(input.model, availableModels(route));
     db.prepare('UPDATE chat_windows SET model=?,route=? WHERE id=?').run(model, route, window.id);
     return { model, ...(route && { route }) };

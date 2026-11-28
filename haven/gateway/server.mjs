@@ -181,6 +181,11 @@ async function api(req, res, url) {
   if (url.pathname.startsWith('/app/calendar/')) {
     if (!store.calendar) throw new RequestError(404, '这个小屋没有连接本机日历。');
     const target = live.calendarTarget(store);
+    if (url.pathname === '/app/calendar/storybook' && req.method === 'GET') {
+      const thread = store.calendar.storyThreadFor(target.route);
+      const messages = thread ? (await store.history({ thread })).messages : [];
+      return json(res, 200, { messages, canAsk: target.ready });
+    }
     if (url.pathname === '/app/calendar/month' && req.method === 'GET') {
       return json(res, 200, store.calendar.month(url.searchParams.get('month'), target.route));
     }
@@ -193,7 +198,7 @@ async function api(req, res, url) {
       const messages = thread ? (await store.history({ thread })).messages : [];
       messages.push(...store.calendar.stars(date, target.route, thread));
       messages.sort((a, b) => a.id - b.id);
-      return json(res, 200, { date, fields, messages, notes, canAsk: target.ready });
+      return json(res, 200, { date, fields, messages, notes, canAsk: false });
     }
     if (req.method !== 'POST') throw new RequestError(405, '请求方法有误。');
     const input = await readJson(req, 8192);
@@ -287,14 +292,17 @@ async function api(req, res, url) {
   if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
   let input = await readJson(req);
   if (url.pathname === '/app/send' && input.calendarDate !== undefined) {
+    throw new RequestError(410, '阿川的日记本已改为翻阅。想给他出题，请刷新后打开故事本。');
+  }
+  if (url.pathname === '/app/send' && input.storybook === true) {
     if (!store.calendar) throw new RequestError(404, '这个小屋没有连接本机日历。');
     const target = live.calendarTarget(store, input.sourceThread);
     if (!target.ready) throw new RequestError(409, '请先在杂物间连接小屋的 Gemini 线路。');
     if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1200 ||
         typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(input.requestId)) {
-      throw new RequestError(400, '请填写 1200 字以内的页边留言，并带上发送编号。');
+      throw new RequestError(400, '请填写 1200 字以内的故事题目，并带上发送编号。');
     }
-    const thread = store.calendar.openDay(input.calendarDate, target);
+    const thread = store.calendar.openStorybook(target);
     input = { thread, route: target.route, text: input.text, requestId: input.requestId };
   }
   if (live && ['/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {

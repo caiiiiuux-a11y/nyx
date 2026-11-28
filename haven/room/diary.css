@@ -167,7 +167,7 @@ body[data-page="diary"] {
 .record-actions button { display: flex; align-items: center; border: 1px solid #ccbfc0; border-radius: 16px; background: #edf2f1; color: #3c5a6c; padding: 4px 11px 4px 6px; font-size: .84rem; min-height: 37px; }
 .record-actions button:nth-child(2) { background: #f7e8e9; color: #814d60; border-color: #e1bcc5; }
 .record-actions button[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
-.record-actions img, .star-paper h3 img { width: 27px; height: 24px; object-fit: contain; margin-right: 3px; }
+.record-actions img { width: 27px; height: 24px; object-fit: contain; margin-right: 3px; }
 .record-form { display: grid; gap: 10px; padding: 12px; margin-top: 9px; background: #fffdf8; border: 1px dashed #dfc2bd; border-radius: 8px; }
 .record-form label { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; }
 .record-form label:first-child, #period-choice { display: flex; align-items: center; gap: 9px; }
@@ -179,16 +179,44 @@ body[data-page="diary"] {
 .quiet, .text-button { font-size: .78rem; text-decoration: underline; text-underline-offset: 3px; color: #84576c; }
 .status { color: var(--muted); font-size: .78rem; line-height: 1.65; margin: 5px 0; }
 .status:empty { display: none; }
-.star-paper { margin: 16px 0; padding: 12px; background: #f4f3ed; border: 1px solid #d4d8cf; border-radius: 8px 13px 9px 7px; }
+.star-paper {
+  position: relative; margin: 18px 1px 12px; padding: 12px clamp(13px, 3vw, 24px) 18px clamp(22px, 4vw, 31px);
+  background: linear-gradient(90deg, #91a7af 0 5px, #d2dcdb 5px 8px, #f7f3e9 8px 11px, transparent 14px),
+    linear-gradient(#fffaf0d9, #fff9ecbc), url('/room/assets/paper-texture.webp') center / 250px 130px;
+  border: 1px solid #c7c9bd; border-radius: 5px 12px 12px 5px;
+  box-shadow: 1px 2px #e8e3d3, 2px 4px #acbdc2, 3px 7px 8px #614d4022;
+}
 .daily h3 { margin: 0; font-size: .93rem; font-weight: 600; }
-.star-paper h3 { display: flex; align-items: center; gap: 4px; color: var(--blue); }
-#ask-form { display: grid; justify-items: end; gap: 6px; margin-top: 7px; }
-.day-message { border-top: 1px dashed #ded7c9; margin-top: 9px; padding-top: 7px; }
-.day-message p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 3px 0; font-size: .9rem; line-height: 1.65; }
-.day-message strong, .day-message small { color: var(--muted); font-size: .74rem; font-weight: 500; }
-.day-message strong { display: inline-flex; align-items: center; gap: 4px; }
+.notebook-title { display: flex; align-items: center; gap: 10px; min-height: 45px; padding-bottom: 8px; border-bottom: 1px solid #d8d4bf; }
+.notebook-cover { width: 32px; height: auto; transform: rotate(-7deg); }
+.notebook-title h3 { color: #455e68; font-size: 1.04rem; scroll-margin-block: 18px; }
+.notebook-star { width: 24px; height: 24px; margin-left: auto; object-fit: contain; transform: rotate(9deg); }
+.journal-empty { margin: 12px 0 0; padding-bottom: 8px; border-bottom: 1px solid #e7e1d2; color: var(--muted); font-size: .86rem; }
+.journal-prompts { margin: 13px 0 7px; }
+.journal-prompts summary { width: fit-content; padding: 6px 0; min-height: 32px; color: var(--blue); font-size: .83rem; cursor: pointer; }
+.storybook {
+  margin: 15px 0; padding: 5px 13px 6px; border: 1px solid #dec3ba; border-left: 5px solid #c49196;
+  border-radius: 4px 11px 10px 4px; background: #fbede6; box-shadow: 1px 2px #ead5c7;
+}
+.storybook > summary { display: flex; align-items: center; gap: 9px; cursor: pointer; color: #84505c; font-weight: 600; }
+.storybook > summary::-webkit-details-marker { display: none; }
+.storybook > summary img { width: 43px; height: 40px; object-fit: contain; }
+.storybook > summary .fold-icon { margin-left: auto; }
+.story-entry { margin: 5px 0; padding: 7px 0; border-top: 1px dashed #dcc4ba; }
+.story-entry summary, .story-entry p { overflow-wrap: anywhere; }
+.story-entry summary { cursor: pointer; color: #774c58; font-size: .87rem; }
+.story-entry p { margin: 7px 0; white-space: pre-wrap; line-height: 1.8; font-size: .92rem; }
+.story-entry button { margin-top: 6px; }
+#story-form { display: grid; justify-items: end; gap: 6px; margin: 9px 0 5px; }
+#story-form label { justify-self: start; color: #785a57; font-size: .82rem; }
+.diary-entry, .prompt-message { padding-top: 10px; }
+.diary-entry + .diary-entry, .prompt-message + .prompt-message { margin-top: 10px; border-top: 1px dashed #ddd4c8; }
+.diary-entry p, .prompt-message p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 5px 0 0; font-size: .93rem; line-height: 1.85; }
+.diary-entry strong, .prompt-message strong, .diary-entry small, .prompt-message small, .diary-entry time { color: var(--muted); font-size: .74rem; font-weight: 500; }
+.diary-entry strong { display: inline-flex; align-items: center; gap: 4px; color: var(--blue); }
+.diary-entry time { margin-left: 8px; }
 .message-star { width: 17px; height: 17px; object-fit: contain; }
-.day-message small { display: block; color: var(--blue); }
+.diary-entry small, .prompt-message small { display: block; color: var(--blue); }
 .task-paper { padding: 9px 0; border-block: 1px dashed var(--edge); }
 .task-paper summary { display: flex; align-items: center; cursor: pointer; list-style: none; }
 .task-paper summary::-webkit-details-marker { display: none; }

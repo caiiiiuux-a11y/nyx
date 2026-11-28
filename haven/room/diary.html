@@ -34,7 +34,7 @@
             <button type="button" data-kind="meals" aria-pressed="false"><img src="/room/assets/blue-rim-teacup.webp" alt="">餐食</button>
             <button type="button" data-kind="period" aria-pressed="false"><img src="/room/assets/pin-rabbit.png" alt="">经期</button>
             <button type="button" data-kind="note" aria-pressed="false"><img src="/room/assets/mini-blue-book.webp" alt="">便签</button>
-            <button type="button" data-kind="star" aria-pressed="false"><img src="/room/assets/paper-star.webp" alt="">纸星</button>
+            <button type="button" data-kind="star" aria-pressed="false" aria-label="纸星，阿川的日记"><img src="/room/assets/paper-star.webp" alt="">纸星</button>
           </div>
           <img class="window-rabbit" src="/room/assets/window-rabbit.webp" width="398" height="464" alt="">
         </div>
@@ -87,14 +87,28 @@
       <p id="record-status" class="status" role="status"></p>
       <button type="button" id="reload-day" class="text-button" hidden>重新读取</button>
       <section class="star-paper" aria-labelledby="star-heading">
-        <h3 id="star-heading"><img src="/room/assets/paper-star.webp" alt="">阿川的页边留言</h3>
+        <header class="notebook-title">
+          <img class="notebook-cover" src="/room/assets/mini-blue-book.webp" width="326" height="410" alt="">
+          <h3 id="star-heading" tabindex="-1">阿川的日记本</h3>
+          <img class="notebook-star" src="/room/assets/paper-star.webp" alt="">
+        </header>
+        <p id="journal-empty" class="journal-empty" hidden>这一天还没有日记。</p>
         <div id="day-messages"></div>
-        <form id="ask-form"><label for="ask-text" class="sr-only">给这一天的阿川留言</label>
-          <textarea id="ask-text" rows="2" maxlength="1200" placeholder="阿川，这一天…" disabled></textarea>
-          <button type="submit" class="blue-button" disabled>问阿川</button>
-        </form>
-        <p id="ask-status" class="status" role="status"></p>
       </section>
+      <details class="journal-prompts" id="journal-prompts" hidden>
+        <summary>以前的页边对话</summary>
+        <div id="day-prompts"></div>
+      </details>
+      <details class="storybook" id="storybook">
+        <summary><img src="/room/assets/paper-boat-otter.webp" width="48" height="48" alt="">故事本 <span class="fold-icon" aria-hidden="true"></span></summary>
+        <div id="story-list"></div>
+        <form id="story-form"><label for="story-prompt">想听什么故事？</label>
+          <textarea id="story-prompt" rows="2" maxlength="1200" placeholder="比如，一艘只在月亮升起时出航的纸船…" required disabled></textarea>
+          <button type="submit" class="rose-button" disabled>请阿川讲故事</button>
+        </form>
+        <p id="story-status" class="status" role="status"></p>
+        <button type="button" id="reload-stories" class="text-button" hidden>重新读取故事本</button>
+      </details>
       <details class="task-paper">
         <summary><h3>待办</h3><span class="fold-icon" aria-hidden="true"></span></summary>
         <ul id="day-tasks"></ul>

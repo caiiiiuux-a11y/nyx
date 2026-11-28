@@ -139,6 +139,6 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
   return {
     get, create, insert, recent, configure, recordTurn, recordAnswer, latestUsage, defaultWindowKey, setDefaultWindowKey, requestCacheMode,
     list: () => ({ windows: db.prepare('SELECT ' + fields + ' FROM chat_windows' +
-      (enableCalendar ? ' WHERE id NOT IN (SELECT thread FROM calendar_windows)' : '') + ' ORDER BY updated DESC,rowid DESC').all() })
+      (enableCalendar ? ' WHERE id NOT IN (SELECT thread FROM calendar_bound_windows)' : '') + ' ORDER BY updated DESC,rowid DESC').all() })
   };
 }

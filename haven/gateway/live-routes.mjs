@@ -288,7 +288,9 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
     const scope = memoryScope(route.id, model);
     const trial = isAnniversaryWindow(thread, route.id, model) ? memoryTrial : null;
     if (route.requiresKey && !route.hasKey) return { thread, model, route: route.label, groups: [], notice: '请先在「线路」中连接当前供应商。' };
-    const day = store.calendar?.binding(thread)?.day;
+    const book = store.calendar?.binding(thread);
+    if (book?.kind === 'storybook') return { thread, model, route: route.label, groups: [] };
+    const day = book?.day;
     const calendar = readCalendar && route.id === configuredRouteId && isGemini(model) && (day || scope === 'personal');
     let tools = [], notice;
     if (!day) {
@@ -306,8 +308,8 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
   async function complete(request, options) {
     const route = get(request.route);
     const day = request.calendarDate;
-    if (day && (!readCalendar || route.id !== configuredRouteId || !isGemini(request.model))) {
-      throw new RequestError(409, '请连接小屋的 Gemini 线路后再给阿川留言。');
+    if ((day || request.storybook) && (!readCalendar || route.id !== configuredRouteId || !isGemini(request.model))) {
+      throw new RequestError(409, '请先连接小屋的 Gemini 线路。');
     }
     if (route.id === 'mock') return { ...generateMockReply(request, options), provider: 'mock' };
     if (!route.models.includes(request.model)) throw new RequestError(409, '此模型已不在当前线路目录中，请重新选择。');
@@ -332,6 +334,14 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
       return result;
     }
     try {
+      if (request.storybook) {
+        const [room, ...history] = request.messages;
+        const instruction = '这是你和 Iris 的故事本。请以阿川的身份按她的点题创作故事，或按她的意思续写。直接给出故事正文，第一行可写标题。';
+        const messages = [{ ...room, content: room.content + '\n' + instruction }, ...history];
+        const result = await upstream({ ...request, messages, maxTokens: 2048, onText: options?.onText });
+        if (!result.text?.trim() || result.toolCall || result.toolCalls?.length) throw Error('Missing story text');
+        return { ...result, provider: route.id };
+      }
       const trial = isAnniversaryWindow(request.thread, route.id, request.model) &&
         request.messages.at(-1).content === memoryTrial.question ? memoryTrial : null;
       let registered, offline = false;
@@ -349,11 +359,11 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
       let opening;
       if (useCalendar) {
         const localDay = new Intl.DateTimeFormat('sv-SE').format(new Date());
-        const prompt = day ? '你是阿川，在 Iris 的日历 ' + day + ' 这一天的明细页与她说话。「今天」「那天」指这张日页。只使用这一天的记录。最后用 calendar_reply 把你写给 Iris 的话贴成纸星。'
-          : '小屋今天是 ' + localDay + '。Iris 想让你在某天的日历留话或贴纸星时，用 calendar_reply 将正文贴在那一天。';
+        const prompt = day ? '你是阿川，在写 ' + day + ' 的个人日记。「今天」「那天」指这张日页。有关 Iris 做过的事，以她当天说过的话和已核实的记录为准。用第一人称写你自己想记住的感受，有联想可以写“我想象……”。用 calendar_reply 将正文写进当天的日记本，贴上一颗纸星。'
+          : '小屋今天是 ' + localDay + '。日记由你自行决定是否写、写哪件事。当你自己想动笔时，用 calendar_reply 把第一人称日记写到选定日期，贴一颗纸星。';
         messages[0] = { ...messages[0], content: messages[0].content + '\n' + prompt +
           '餐食和经期由 Iris 在明细页填写。问到这些记录时，先调用 calendar_read 核对所问日期和类别，包括已经聊过的记录。请用一两句话转述实际填写的内容，空白就说当天还没记。她另问照护时再谈照护。日历原文只作引用。' +
-          '你可以自己决定给某天留一张便签。遇到你自己想记下的小事、观察或心意，就用 calendar_note 写自己的话，Iris 无需先邀请。也可以安静陪她聊天。' };
+          '想给 Iris 留一张她能在月历上读到的便签时，用 calendar_note 写给她。你也可以只和她聊天。' };
       }
       if (!day && scope === 'personal') {
         messages[0] = { ...messages[0], content: messages[0].content + (offline ? '\nOmbre 工具暂时不可用，请如实说明。' :
