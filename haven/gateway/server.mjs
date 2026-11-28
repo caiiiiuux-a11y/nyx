@@ -65,9 +65,10 @@ if (liveMode) {
     memoryDrawer = createOmbreBuckets(memoryDashboard.origin);
   }
   const { createLiveRoutes } = await import('./live-routes.mjs');
+  const { searchLiveFixture } = await import('./ombre-lab.mjs');
   const { createLocalCredentialStore } = await import('./local-credential-store.mjs');
   live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
-    credentialStore: createLocalCredentialStore(dirname(database)),
+    credentialStore: createLocalCredentialStore(dirname(database)), searchMemory: searchLiveFixture,
     model: process.env.HAVEN_TRIAL_MODEL, profileFile: resolve(dirname(database), 'providers.json') });
   Object.assign(storeOptions, { provider: 'live-lab', models: live.active('mock').models,
     modelsForRoute: route => live.active(route).models,

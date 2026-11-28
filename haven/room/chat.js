@@ -254,8 +254,11 @@ function showMemoryDetails(anchor, tool, refs, archiveMode) {
   content.replaceChildren();
   if (tool) {
     const action = { hold: '写入', breath_search: '查找', dream: '做梦' }[tool.name];
-    const status = { ok: '已收到回执', error: '未完成', uncertain: '结果待核对' }[tool.status];
-    content.append(element('p', 'receipt-status', ['Ombre', action, status].filter(Boolean).join(' · ')));
+    const status = { ok: '已收到回执', empty: '没有匹配的记忆', error: '未完成', uncertain: '结果待核对' }[tool.status];
+    const origin = tool.scope === 'synthetic' ? 'Ombre 隔离库' : 'Ombre';
+    content.append(element('p', 'receipt-status', [origin, action, status].filter(Boolean).join(' · ')));
+    if (tool.query) content.append(element('p', 'receipt-caption', '查询词「' + tool.query + '」'));
+    if (tool.matchedQuery) content.append(element('p', 'receipt-caption', '命中词「' + tool.matchedQuery + '」'));
   }
   if (archiveMode === 'hybrid' || archiveMode === 'lexical') {
     const method = archiveMode === 'hybrid' ? '语义和文字匹配' : '文字匹配';

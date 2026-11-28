@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { memoryLabExample } from '../room/memory-lab-example.mjs';
+import { lexicalQuery, lexicalTerms } from './archive-search.mjs';
 
 const labName = 'iris-memory-lab';
 const provider = labName + '-provider';
@@ -80,17 +81,27 @@ export function fixtureArguments(name, args) {
   throw new Error('隔离记忆只接受约定的合成示例');
 }
 
-export function fixtureReceipt(name, { text }, query = memoryLabExample.keyword) {
-  if (typeof text !== 'string' || !text.trim() || /\[OB-E004\]/.test(text)) throw new Error('Ombre 未能完成合成记忆操作');
+function checkedReceipt({ text }) {
+  if (typeof text !== 'string' || !text.trim() || /\[OB-E004\]|检索过程出错/.test(text)) throw new Error('Ombre 未能完成合成记忆操作');
+  return text;
+}
+
+function* searchHits(text) {
+  const entries = text.matchAll(/^([^\r\n]*?\[bucket_id:([^\]\r\n]{1,200})\][^\r\n]*)\r?\n([^\r\n]+)/gm);
+  for (const [, header, bucketId, excerpt] of entries) {
+    if (!header.includes('非检索命中')) yield { header, bucketId, excerpt };
+  }
+}
+
+export function fixtureReceipt(name, raw, query = memoryLabExample.keyword) {
+  const text = checkedReceipt(raw);
   let bucketId;
   if (name === 'hold') {
     bucketId = /^(?:新建|合并)→([^\s]{1,200})(?:\s|$)/m.exec(text)?.[1];
     if (!bucketId) throw new Error('Ombre 没有确认保存这条合成记忆');
   } else if (name === 'breath_search') {
     // Only bind a real hit to its own body. Ombre can append unrelated associations.
-    const entries = text.matchAll(/^([^\n]*?\[bucket_id:([^\]\r\n]{1,200})\][^\n]*)\r?\n([^\r\n]+)/gm);
-    for (const [, header, id, body] of entries) {
-      if (header.includes('非检索命中')) continue;
+    for (const { bucketId: id, excerpt: body } of searchHits(text)) {
       if (query === 'Winterfern' && body.startsWith('Winterfern synthetic memory.')) {
         return { text, bucketId: id, excerpt: body };
       }
@@ -108,17 +119,48 @@ export function fixtureReceipt(name, { text }, query = memoryLabExample.keyword)
   return typeof bucketId === 'string' && bucketId.length <= 200 ? { text, bucketId } : { text };
 }
 
+async function callIsolatedTool(name, args) {
+  const id = await isolatedContainer();
+  const helper = await readFile(new URL('./ombre_lab_client.py', import.meta.url), 'utf8');
+  const clients = {};
+  for (const file of clientFiles) clients[file] = await readFile(new URL(file, oldClients), 'utf8');
+  const payload = JSON.stringify({ name, arguments: args, clients });
+  const raw = await docker(['exec', '-i', id, 'python', '-I', '-B', '-c', helper], payload);
+  return JSON.parse(raw);
+}
+
+// The tiny vault also ranks buckets by recency and importance. Require evidence
+// for this query and return only the agreed fixture's actual hit, never the raw report.
+export function liveFixtureHit(raw, query) {
+  const match = lexicalQuery(query, true);
+  for (const { header, bucketId, excerpt } of searchHits(checkedReceipt(raw))) {
+    if (excerpt === memoryLabExample.fact && /^[a-f0-9]{12}$/.test(bucketId) &&
+        (match(excerpt).count || query === bucketId || header.includes('[语义关联]'))) {
+      return { bucketId, excerpt };
+    }
+  }
+  return null;
+}
+
+export async function searchLiveFixture(query, call = callIsolatedTool) {
+  // Without embeddings the lab can miss a multi-word phrase. Retry at most
+  // two words from the model's own query in their original order.
+  const phrases = query.split(/[\s,，、;；]+/u).filter(Boolean);
+  const words = phrases.length > 1 ? new Set(phrases) : lexicalTerms(query, true);
+  const terms = [...words].filter(word => word.length > 1 && word.toLowerCase() !== query.toLowerCase()).slice(0, 2);
+  for (const term of [query, ...terms]) {
+    const raw = await call('breath_search', { query: term, max_results: 5 });
+    const hit = liveFixtureHit(raw, term);
+    if (hit) return term === query ? hit : { ...hit, matchedQuery: term };
+  }
+  return null;
+}
+
 export function createOmbreLab() {
   return {
     async callTool(name, args) {
       const toolArgs = fixtureArguments(name, args);
-      const id = await isolatedContainer();
-      const helper = await readFile(new URL('./ombre_lab_client.py', import.meta.url), 'utf8');
-      const clients = {};
-      for (const file of clientFiles) clients[file] = await readFile(new URL(file, oldClients), 'utf8');
-      const payload = JSON.stringify({ name, arguments: toolArgs, clients });
-      const raw = await docker(['exec', '-i', id, 'python', '-I', '-B', '-c', helper], payload);
-      return fixtureReceipt(name, JSON.parse(raw), toolArgs.query);
+      return fixtureReceipt(name, await callIsolatedTool(name, toolArgs), toolArgs.query);
     }
   };
 }

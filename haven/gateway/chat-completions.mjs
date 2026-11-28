@@ -35,11 +35,13 @@ function wireMessage(message) {
     return { role: 'tool', tool_call_id: message.toolCallId, content: message.content };
   }
   if (message.role === 'assistant' && message.toolCall) {
-    const { id, name, arguments: args } = message.toolCall;
+    const { id, name, arguments: args, thoughtSignature, providerSignature } = message.toolCall;
     if (!id || !name) throw new Error('缺少模型请求的工具或调用编号');
     return {
       role: 'assistant', content: message.content ?? null,
-      tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }]
+      tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) },
+        ...(thoughtSignature && { extra_content: { google: { thought_signature: thoughtSignature } } }),
+        ...(providerSignature && { provider_specific_fields: { thought_signature: providerSignature } }) }]
     };
   }
   return { role: message.role, content: message.content };
@@ -105,12 +107,14 @@ async function readCompletion(body, model, allowReportedAlias, tools, usage, ela
         emit?.('', true);
         return allowReportedAlias ? { text, reportedModel } : { text };
       }
-      if (finish !== 'tool_calls' || !call?.id.trim() || !tools.some(tool => tool.name === call.name)) {
+      // Gemini-compatible streams can end a complete single function call with "stop".
+      if (!['tool_calls', 'stop'].includes(finish) || !call?.id.trim() || !tools.some(tool => tool.name === call.name)) {
         throw invalidResponse();
       }
       const args = JSON.parse(call.arguments);
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw invalidResponse();
-      const toolCall = { id: call.id, name: call.name, arguments: args };
+      const toolCall = { ...call, arguments: args };
+      emit?.('', true);
       return text ? { text, toolCall } : { toolCall };
     }
     const chunk = JSON.parse(data);
@@ -140,8 +144,15 @@ async function readCompletion(body, model, allowReportedAlias, tools, usage, ela
     if (delta.tool_calls != null) {
       if (!Array.isArray(delta.tool_calls) || delta.tool_calls.length !== 1) throw invalidResponse();
       const [fragment] = delta.tool_calls;
-      if (fragment.index !== 0 || (fragment.type != null && fragment.type !== 'function')) throw invalidResponse();
+      if ((fragment.index ?? 0) !== 0 || (fragment.type != null && fragment.type !== 'function')) throw invalidResponse();
       call ??= { id: '', name: '', arguments: '' };
+      // Vertex and LiteLLM use different envelopes for the same in-flight proof.
+      for (const [key, signature] of [['thoughtSignature', fragment.extra_content?.google?.thought_signature],
+        ['providerSignature', fragment.provider_specific_fields?.thought_signature]]) {
+        if (signature == null) continue;
+        if (typeof signature !== 'string' || (call[key] && signature !== call[key])) throw invalidResponse();
+        call[key] = signature;
+      }
       if (fragment.id != null) {
         if (typeof fragment.id !== 'string' || (call.id && call.id !== fragment.id)) throw invalidResponse();
         call.id = fragment.id;
