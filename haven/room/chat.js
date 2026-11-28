@@ -255,7 +255,7 @@ function showMemoryDetails(anchor, tool, refs, archiveMode) {
   if (tool) {
     const action = { hold: '写入', breath_search: '查找', dream: '做梦' }[tool.name];
     const status = { ok: '已收到回执', empty: '没有匹配的记忆', error: '未完成', uncertain: '结果待核对' }[tool.status];
-    const origin = tool.scope === 'synthetic' ? 'Ombre 隔离库' : 'Ombre';
+    const origin = { synthetic: 'Ombre 隔离库', personal: 'Ombre 真实库' }[tool.scope] || 'Ombre';
     content.append(element('p', 'receipt-status', [origin, action, status].filter(Boolean).join(' · ')));
     if (tool.query) content.append(element('p', 'receipt-caption', '查询词「' + tool.query + '」'));
     if (tool.matchedQuery) content.append(element('p', 'receipt-caption', '命中词「' + tool.matchedQuery + '」'));
@@ -784,9 +784,11 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
     if (memoryLab) {
       if (!document.querySelector('.memory-lab-guide')) await showMemoryLab();
     } else if (liveLab) {
-      document.querySelector('.chat-date').textContent = (room.routeLabel || (room.route === 'mock' ? '本地模拟' : room.model)) + ' · 合成试聊';
-      log.setAttribute('aria-label', '与 Adrian 的合成试聊');
-      say.placeholder = '写一句合成测试消息…';
+      const hasPersonalReceipt = room.messages.some(m => m.meta?.memoryTool?.scope === 'personal');
+      const label = room.anniversaryTrial ? '纪念日试聊' : hasPersonalReceipt ? '纪念日试聊记录' : '合成试聊';
+      document.querySelector('.chat-date').textContent = (room.routeLabel || (room.route === 'mock' ? '本地模拟' : room.model)) + ' · ' + label;
+      log.setAttribute('aria-label', '与 Adrian 的' + label);
+      say.placeholder = room.anniversaryTrial ? '问问阿川我们的纪念日…' : '写一句合成测试消息…';
     } else if (providerLab) {
       document.querySelector('.chat-date').textContent = 'Gateway · 旧家园合成 API';
       say.placeholder = '写一句合成测试消息…';
@@ -798,7 +800,7 @@ async function loadRoom({ select, create = false, locateNote = false } = {}) {
     log.replaceChildren();
     for (const message of room.messages) log.append(build(message));
     if (!room.messages.length) log.append(element('p', 'chat-empty',
-      liveLab ? '写下一个虚构的小故事，下一轮可以接着聊。' :
+      room.anniversaryTrial ? '这个窗口可以核对你们的纪念日。' : liveLab ? '写下一个虚构的小故事，下一轮可以接着聊。' :
         memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : providerLab
         ? '发一句测试消息，再问「Winterfern 灯塔的标记是什么？」'
         : '写给 Adrian…'));

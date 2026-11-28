@@ -61,7 +61,7 @@ function readProfiles(file) {
   return data;
 }
 
-export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credentialStore, fetchImpl, searchMemory }) {
+export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credentialStore, fetchImpl, searchMemory, memoryTrial }) {
   const profiles = new Map(readProfiles(profileFile).map(p => [p.id, p]));
   const keys = new Map();
   const savedKeys = new Set();
@@ -227,6 +227,10 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
     return { ...status(store, thread), addedRoute: id };
   }
 
+  function isAnniversaryWindow(thread, route, model) {
+    return Boolean(memoryTrial && memoryTrial.thread === thread && route === configuredRouteId && memoryTrial.model === model);
+  }
+
   async function complete(request, options) {
     const route = get(request.route);
     if (route.id === 'mock') return { ...generateMockReply(request, options), provider: 'mock' };
@@ -244,11 +248,16 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
       return result;
     }
     try {
-      const tool = searchMemory && route.id === configuredRouteId && /(?:^|\/)gemini[-.\w]*$/i.test(request.model) ? liveSearchTool : null;
-      const { messages, archiveHits } = quotedContext(request, tool);
+      const gemini = route.id === configuredRouteId && /(?:^|\/)gemini[-.\w]*$/i.test(request.model);
+      const trial = gemini && isAnniversaryWindow(request.thread, route.id, request.model) &&
+        request.messages.at(-1).content === memoryTrial.question ? memoryTrial : null;
+      const tool = trial?.tool ?? (gemini && searchMemory ? liveSearchTool : null);
+      const { messages, archiveHits } = trial ? { messages: [request.messages[0], request.messages.at(-1)], archiveHits: [] }
+        : quotedContext(request, tool);
       const input = { model: request.model, messages, contextBudget: request.contextBudget,
         cacheMode: request.cacheMode, thread: request.thread, maxTokens: 1024, onText: options?.onText };
-      const result = tool ? await completeMemoryTurn(upstream, input, tool, searchMemory) : await upstream(input);
+      const result = tool ? await completeMemoryTurn(upstream, input, tool, trial?.search ?? searchMemory, trial ? 'personal' : 'synthetic')
+        : await upstream(input);
       return { ...result, provider: route.id, ...(archiveHits && { archiveHits }) };
     } catch (error) {
       if (/HTTP 401\b/.test(error.message)) {
@@ -263,5 +272,5 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credenti
       throw error;
     }
   }
-  return { status, select, active, add, refresh, forgetKey, complete };
+  return { status, select, active, add, refresh, forgetKey, complete, isAnniversaryWindow };
 }

@@ -15,7 +15,7 @@ const searchTool = {
     required: ['query'], additionalProperties: false }
 };
 
-export async function completeMemoryTurn(complete, request, tool, search) {
+export async function completeMemoryTurn(complete, request, tool, search, scope = 'synthetic') {
   const started = performance.now();
   const first = await complete({ ...request, tools: [tool] });
   const call = first.toolCall;
@@ -27,7 +27,7 @@ export async function completeMemoryTurn(complete, request, tool, search) {
     throw new Error('The provider requested a tool outside this lab.');
   }
 
-  const memoryTool = { name: 'breath_search', scope: 'synthetic', query: query.trim(), status: 'empty' };
+  const memoryTool = { name: 'breath_search', scope, query: query.trim(), status: 'empty' };
   // Some gateways embed a long opaque signature in the wire ID. It is only needed in flight.
   const receiptId = call.id.split('__thought__', 1)[0];
   if (receiptId && receiptId.length <= 200) memoryTool.callId = receiptId;

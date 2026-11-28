@@ -10,11 +10,12 @@ import { models as mockModels } from '../room/catalog.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const { values } = parseArgs({ options: {
   port: { type: 'string' }, db: { type: 'string' }, 'memory-lab': { type: 'boolean' },
-  'provider-lab': { type: 'boolean' }, 'live-lab': { type: 'boolean' }
+  'provider-lab': { type: 'boolean' }, 'live-lab': { type: 'boolean' }, 'anniversary-trial': { type: 'boolean' }
 } });
 const memoryMode = values['memory-lab'] === true;
 const providerMode = values['provider-lab'] === true;
 const liveMode = values['live-lab'] === true;
+if (values['anniversary-trial'] && (!liveMode || values.db !== undefined)) throw Error('Use the local live chat for this trial.');
 if ([memoryMode, providerMode, liveMode].filter(Boolean).length > 1) throw new Error('Choose one lab per process.');
 const labMode = memoryMode || providerMode || liveMode;
 const defaultPort = liveMode ? 4194 : providerMode ? 4192 : memoryMode ? 4191 : 4190;
@@ -66,9 +67,15 @@ if (liveMode) {
   }
   const { createLiveRoutes } = await import('./live-routes.mjs');
   const { searchLiveFixture } = await import('./ombre-lab.mjs');
+  let memoryTrial;
+  if (values['anniversary-trial']) {
+    const { createAnniversaryTrial } = await import('./anniversary-trial.mjs');
+    const grant = JSON.parse(readFileSync(resolve(dirname(database), 'anniversary-trial.json'), 'utf8'));
+    memoryTrial = { ...createAnniversaryTrial(grant.thread, memoryDashboard?.origin, grant.selection), model: grant.model };
+  }
   const { createLocalCredentialStore } = await import('./local-credential-store.mjs');
   live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
-    credentialStore: createLocalCredentialStore(dirname(database)), searchMemory: searchLiveFixture,
+    credentialStore: createLocalCredentialStore(dirname(database)), searchMemory: searchLiveFixture, memoryTrial,
     model: process.env.HAVEN_TRIAL_MODEL, profileFile: resolve(dirname(database), 'providers.json') });
   Object.assign(storeOptions, { provider: 'live-lab', models: live.active('mock').models,
     modelsForRoute: route => live.active(route).models,
@@ -223,6 +230,7 @@ async function api(req, res, url) {
       history.hasKey = route.hasKey;
       history.requiresKey = route.requiresKey;
       history.catalogReady = route.catalogReady;
+      if (live.isAnniversaryWindow(history.thread, route.id, history.model)) history.anniversaryTrial = true;
     }
     return json(res, 200, history);
   }
