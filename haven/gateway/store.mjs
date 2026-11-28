@@ -95,6 +95,10 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
   const defaultRoute = modelsForRoute ? 'mock' : null;
   if (modelsForRoute) db.exec(`CREATE TABLE IF NOT EXISTS opening_memory_receipts (
     thread TEXT PRIMARY KEY, turn_id INTEGER NOT NULL, route TEXT NOT NULL, receipt TEXT
+  );
+  CREATE TABLE IF NOT EXISTS ombre_tool_receipts (
+    turn_id INTEGER NOT NULL, route TEXT NOT NULL, step INTEGER NOT NULL, name TEXT NOT NULL, receipt TEXT,
+    PRIMARY KEY(turn_id,route,step)
   )`);
   const availableModels = route => modelsForRoute ? modelsForRoute(route) : models;
   const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey, defaultRoute });
@@ -261,7 +265,20 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     }
     if (modelsForRoute) request.route = prefs.route ?? turn.route;
     const options = { regenerating: Boolean(previousAnswer), previousText: previousAnswer?.text, onText };
-    if (modelsForRoute) options.openingMemory = surface => openingMemory(turn, route, options.regenerating, surface);
+    if (modelsForRoute) {
+      options.openingMemory = surface => openingMemory(turn, route, options.regenerating, surface);
+      options.toolJournal = {
+        read: () => db.prepare('SELECT name,receipt FROM ombre_tool_receipts WHERE turn_id=? AND route=? ORDER BY step')
+          .all(turn.id, route).map(row => ({ name: row.name, receipt: row.receipt && JSON.parse(row.receipt) })),
+        claim: (step, name) => db.prepare('INSERT OR IGNORE INTO ombre_tool_receipts(turn_id,route,step,name) VALUES(?,?,?,?)')
+          .run(turn.id, route, step, name).changes === 1,
+        save: (step, record) => db.prepare('UPDATE ombre_tool_receipts SET receipt=? WHERE turn_id=? AND route=? AND step=?')
+          .run(JSON.stringify(record), turn.id, route, step)
+      };
+      options.checkWindow = () => {
+        if (windows.get(thread).route !== route) throw new RequestError(409, '本窗口的线路已经改变。');
+      };
+    }
     let result;
     let usage;
     let memoryTool;
@@ -308,6 +325,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         ...(result.reportedModel && { reportedModel: result.reportedModel }),
         usage,
         ...(memoryTool && { memoryTool }),
+        ...(result.memoryTools?.length && { memoryTools: result.memoryTools }),
         ...(result.openingMemory && { openingMemory: result.openingMemory }),
         ...(memorySources?.length && { sourceRefs: memorySources }),
         ...(archiveHits?.length && { archiveMode: archive.mode, automaticRecall: Boolean(archive.automatic) }),

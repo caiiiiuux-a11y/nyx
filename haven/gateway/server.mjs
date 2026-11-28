@@ -204,8 +204,11 @@ async function api(req, res, url) {
     return json(res, 200, result);
   }
   if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
-    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/routes/memory', '/app/provider-cache'].includes(url.pathname)) {
+    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/routes/memory', '/app/tools', '/app/provider-cache'].includes(url.pathname)) {
     throw new RequestError(404, '接口不存在。');
+  }
+  if (live && url.pathname === '/app/tools' && req.method === 'GET') {
+    return json(res, 200, await live.toolList(store, url.searchParams.get('thread') ?? 'window', url.searchParams.get('refresh') === '1'));
   }
   if (live && url.pathname.startsWith('/app/routes/')) {
     if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');

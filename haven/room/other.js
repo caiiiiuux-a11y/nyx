@@ -10,6 +10,95 @@ const newKey = $('provider-key');
 const live = document.documentElement.hasAttribute('data-live-lab');
 let state;
 let busy = false;
+let toolLoad = 0;
+let displayedCatalog;
+
+function linkChatWindow(thread) {
+  document.querySelector('#room-nav a[href^="/chat/"]').href = '/chat/?thread=' + encodeURIComponent(thread);
+}
+
+function toolElement(tag, text, className) {
+  const node = document.createElement(tag);
+  node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function toolCabinet(group, open) {
+  const cabinet = toolElement('details', '', 'tool-cabinet');
+  cabinet.dataset.source = group.id;
+  cabinet.open = open;
+  const front = toolElement('summary', '', 'cabinet-front');
+  if (group.id === 'ombre') {
+    const key = document.createElement('img');
+    key.src = '/room/assets/brass-key.webp';
+    key.alt = '';
+    key.className = 'cabinet-key';
+    front.append(key);
+  }
+  const label = toolElement('span', '', 'cabinet-label');
+  label.append(toolElement('strong', group.title), toolElement('small', group.source + ' · ' + group.tools.length + ' 个工具'));
+  const handle = toolElement('span', '', 'cabinet-handle');
+  handle.setAttribute('aria-hidden', 'true');
+  handle.append(toolElement('span', '打开', 'when-closed'), toolElement('span', '收起', 'when-open'));
+  front.append(label, handle);
+  const inside = toolElement('div', '', 'cabinet-inside');
+  for (const tool of group.tools) {
+    const entry = toolElement('div', '', 'tool-entry');
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.append(toolElement('code', tool.name));
+    details.append(summary, toolElement('p', tool.parameters.length ? '参数　' +
+      tool.parameters.map(name => name + (tool.required.includes(name) ? '（必填）' : '')).join('、') : '无需参数'));
+    if (tool.help && tool.help !== tool.description) details.append(toolElement('p', tool.help));
+    entry.append(details, toolElement('p', tool.description));
+    inside.append(entry);
+  }
+  cabinet.append(front, inside);
+  return cabinet;
+}
+
+async function loadTools(refresh = false) {
+  const ticket = ++toolLoad;
+  $('tools-status').textContent = '正在读取本窗口的工具…';
+  $('refresh-tools').disabled = true;
+  try {
+    const { groups, model, route, thread, notice } = await chatService.toolList(refresh);
+    if (ticket !== toolLoad) return;
+    linkChatWindow(thread);
+    $('tools-status').textContent = notice ?? (groups.length ? '' : '当前线路和模型没有可调用的工具。');
+    const catalogKey = JSON.stringify([thread, route, model, groups]);
+    if (catalogKey !== displayedCatalog) {
+      const opened = new Set([...$('tools-groups').querySelectorAll('.tool-cabinet[open]')].map(c => c.dataset.source));
+      $('tools-groups').replaceChildren(...groups.map(group => toolCabinet(group, opened.has(group.id))));
+      displayedCatalog = catalogKey;
+    }
+  } catch (error) {
+    if (ticket === toolLoad) {
+      $('tools-status').textContent = error.notice || '工具清单暂时读不到，请刷新重试。';
+      $('tools-groups').replaceChildren();
+      displayedCatalog = undefined;
+    }
+  } finally { if (ticket === toolLoad) $('refresh-tools').disabled = false; }
+}
+
+function showSection() {
+  const toolsOpen = live && location.hash === '#tools';
+  $('tools-tab').hidden = !live;
+  $('tools').hidden = !toolsOpen;
+  $('routes').hidden = toolsOpen;
+  const selected = toolsOpen ? 'tools-tab' : 'routes-tab';
+  for (const id of ['routes-tab', 'tools-tab']) {
+    if (id === selected) $(id).setAttribute('aria-current', 'page');
+    else $(id).removeAttribute('aria-current');
+  }
+  if (toolsOpen) loadTools();
+  else if (!state) load();
+}
+
+$('refresh-tools').onclick = () => loadTools(true);
+window.addEventListener('hashchange', showSection);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('tools').hidden) loadTools(); });
 
 function status(message, error = false) {
   $('route-status').textContent = message;
@@ -82,8 +171,7 @@ function render(next, chosenRoute = next.route, chosenModel) {
   provider.value = chosenRoute;
   provider.disabled = state.routes.length === 1;
   $('provider-tools').hidden = !live || !state.routes.some(route => route.catalogReady !== undefined);
-  const href = '/chat/?thread=' + encodeURIComponent(state.thread);
-  document.querySelector('#room-nav a[href^="/chat/"]').href = href;
+  linkChatWindow(state.thread);
   $('provider-key-hint').textContent = storageHint(next.keyStorage);
   showProvider(chosenModel);
 }
@@ -192,6 +280,6 @@ form.onsubmit = event => {
 };
 
 window.addEventListener('pagehide', () => { key.value = newKey.value = ''; });
-window.addEventListener('pageshow', event => { if (event.persisted) load(); });
+window.addEventListener('pageshow', event => { if (event.persisted) location.hash === '#tools' && live ? loadTools() : load(); });
 if (chatService.persistent && !live) $('live-room-link').hidden = false;
-load();
+showSection();

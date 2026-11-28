@@ -19,10 +19,10 @@
       <h1>请求</h1>
     </header>
     <nav class="request-sections" aria-label="请求设置分类">
-      <a href="#routes" aria-current="page">线路</a>
+      <a href="#routes" id="routes-tab" aria-current="page">线路</a>
+      <a href="#tools" id="tools-tab" hidden>工具清单</a>
       <button type="button" disabled title="尚未开放">生成参数</button>
       <button type="button" disabled title="尚未开放">自定义请求</button>
-      <button type="button" disabled title="尚未开放" lang="en">MCP</button>
       <button type="button" disabled title="尚未开放" lang="en">Skills</button>
     </nav>
     <section id="routes" aria-labelledby="model-title">
@@ -63,7 +63,7 @@
           <option value="synthetic">Ombre 隔离测试库</option>
           <option value="personal">Ombre 真实库</option>
         </select>
-        <p id="chat-memory-hint" class="route-hint">切换立即生效。使用真实库时，新窗口首次回复前最多接收一段浮现记忆，之后阿川可按需查找。每次只向这条线路提供一条记忆的编号和原文摘录。</p>
+        <p id="chat-memory-hint" class="route-hint">切换立即生效。使用真实库时，新窗口首次最多浮现一段记忆。阿川可在聊天中调用 Ombre 的工具，回执会交给这条线路。<a href="#tools">查看工具清单</a></p>
       </div>
       <div id="provider-tools" hidden>
         <button id="new-provider" type="button" aria-expanded="false" aria-controls="provider-form">＋ 新建供应商</button>
@@ -86,6 +86,11 @@
         </form>
       </div>
       <p id="route-status" role="status"></p>
+    </section>
+    <section id="tools" aria-labelledby="tools-title" hidden>
+      <header class="tools-heading"><h2 id="tools-title">阿川的工具清单</h2><button type="button" id="refresh-tools">刷新清单</button></header>
+      <p id="tools-status" role="status"></p>
+      <div id="tools-groups"></div>
     </section>
     <a id="live-room-link" href="http://127.0.0.1:4194/other/" hidden>打开本机 API 试聊 ↗</a>
     <footer><a href="/credits.html">素材与署名</a></footer>

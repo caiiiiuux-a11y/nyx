@@ -23,6 +23,39 @@
 }
 .request-sections button:disabled { opacity: .72; cursor: default; }
 #routes { padding-top: 22px; }
+#tools { padding-top: 22px; }
+.tools-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tools-heading h2 { margin: 0; font: 600 21px/1.45 var(--room-serif); }
+#refresh-tools { min-height: 40px; padding: 4px 10px; background: transparent; border: 1px solid #cebfad; border-radius: 12px; color: var(--room-blue); }
+#tools-status { font-size: .87rem; }
+.tool-cabinet {
+  margin: 17px 1px 5px; padding: 4px; border: 1px solid #ab8d6c; border-radius: 9px;
+  background: linear-gradient(#aa8d70, #d4b99a 45%, #bd9f80); box-shadow: 0 3px 5px #674b3523;
+}
+.cabinet-front {
+  list-style: none; display: flex; align-items: center; gap: 17px; min-height: 87px; padding: 10px 18px;
+  border: 1px solid #b99a75; border-radius: 6px; cursor: pointer;
+  background: linear-gradient(110deg, #f4e5d1c9, #e4c8a7dc 80%), url('/room/assets/paper-texture.webp') center/230px;
+  box-shadow: inset 0 1px 1px #fff5df, inset 0 -3px 3px #9c795636;
+}
+.cabinet-front::-webkit-details-marker { display: none; }
+.cabinet-front:focus-visible { outline: 2px solid var(--room-blue); outline-offset: 1px; }
+.cabinet-key { width: 35px; height: 55px; object-fit: contain; transform: rotate(18deg); filter: drop-shadow(1px 2px 1px #70563940); }
+.cabinet-label { display: grid; align-content: center; gap: 4px; color: #614b37; }
+.cabinet-label strong { font: 600 1.12rem/1.35 var(--room-serif); }
+.cabinet-label small { font-size: .78rem; color: #6b543d; }
+.cabinet-handle { margin-left: auto; display: grid; justify-items: center; gap: 6px; color: #684e35; font-size: .76rem; }
+.cabinet-handle::before {
+  content: ''; width: 29px; height: 8px; border: 1px solid #8b7048; border-radius: 12px 12px 4px 4px;
+  background: linear-gradient(#e9cf9a, #ba9962 57%, #886b44); box-shadow: inset 0 1px #fff1c9, 0 2px 2px #75573345;
+}
+.tool-cabinet .when-open, .tool-cabinet[open] .when-closed { display: none; }
+.tool-cabinet[open] .when-open { display: inline; }
+.cabinet-inside { margin-top: 4px; padding: 2px 13px; background: #fcf6ed; border-radius: 3px; }
+.cabinet-inside .tool-entry:first-child { border-top: 0; }
+.tool-entry { border-top: 1px solid #d8ccbc; padding: 8px 0; overflow-wrap: anywhere; }
+.tool-entry summary { cursor: pointer; padding: 4px 0; color: var(--room-blue); }
+.tool-entry p { color: #665746; font-size: .86rem; margin: 4px 0 4px 16px; line-height: 1.55; }
 #routes h2, #provider-fields legend { margin: 0; font: 600 21px/1.45 var(--room-serif); }
 .other-room fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .route-hint { margin: 5px 0 0; color: #796858; font-size: .83rem; line-height: 1.6; }

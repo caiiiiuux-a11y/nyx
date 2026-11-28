@@ -108,6 +108,7 @@ export function createGatewayChat(mediaAssets) {
     },
     openWindow(id) { active.select(id); },
     routes() { return request('routes?thread=' + encodeURIComponent(active.id)); },
+    toolList(refresh = false) { return request('tools?thread=' + encodeURIComponent(active.id) + (refresh ? '&refresh=1' : '')); },
     refreshModels(settings) { return request('routes/models', { ...settings, thread: active.id }); },
     forgetKey(route) { return request('routes/forget-key', { route, thread: active.id }); },
     setMemorySource(route, source) { return request('routes/memory', { route, source, thread: active.id }); },

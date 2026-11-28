@@ -29,20 +29,19 @@ async function rejectedForLength(response) {
   } catch { return false; }
 }
 
-function wireMessage(message) {
+export function wireMessage(message) {
   if (message.role === 'tool') {
     if (!message.toolCallId) throw new Error('工具结果缺少调用编号');
     return { role: 'tool', tool_call_id: message.toolCallId, content: message.content };
   }
-  if (message.role === 'assistant' && message.toolCall) {
-    const { id, name, arguments: args, thoughtSignature, providerSignature } = message.toolCall;
-    if (!id || !name) throw new Error('缺少模型请求的工具或调用编号');
-    return {
-      role: 'assistant', content: message.content ?? null,
-      tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) },
+  if (message.role === 'assistant' && (message.toolCall || message.toolCalls)) {
+    const calls = (message.toolCalls ?? [message.toolCall]).map(({ id, name, arguments: args, thoughtSignature, providerSignature }) => {
+      if (!id || !name) throw new Error('缺少模型请求的工具或调用编号');
+      return { id, type: 'function', function: { name, arguments: JSON.stringify(args) },
         ...(thoughtSignature && { extra_content: { google: { thought_signature: thoughtSignature } } }),
-        ...(providerSignature && { provider_specific_fields: { thought_signature: providerSignature } }) }]
-    };
+        ...(providerSignature && { provider_specific_fields: { thought_signature: providerSignature } }) };
+    });
+    return { role: 'assistant', content: message.content ?? null, tool_calls: calls };
   }
   return { role: message.role, content: message.content };
 }
@@ -95,27 +94,29 @@ function streamedText(onText, credential) {
   };
 }
 
-async function readCompletion(body, model, allowReportedAlias, tools, usage, elapsed, emit) {
+async function readCompletion(body, model, allowReportedAlias, tools, usage, elapsed, emit, multipleTools) {
   let text = '';
   let reportedModel = null;
-  let call;
+  const fragments = new Map();
   let finish;
   for await (const data of eventData(body)) {
     usage.firstResponseMs ??= elapsed();
     if (data === '[DONE]') {
-      if (finish === 'stop' && !call && text.trim()) {
+      if (finish === 'stop' && !fragments.size && text.trim()) {
         emit?.('', true);
         return allowReportedAlias ? { text, reportedModel } : { text };
       }
-      // Gemini-compatible streams can end a complete single function call with "stop".
-      if (!['tool_calls', 'stop'].includes(finish) || !call?.id.trim() || !tools.some(tool => tool.name === call.name)) {
-        throw invalidResponse();
+      if (!['tool_calls', 'stop'].includes(finish) || !fragments.size) throw invalidResponse();
+      const calls = [];
+      for (let index = 0; index < fragments.size; index++) {
+        const call = fragments.get(index);
+        if (!call?.id.trim() || calls.some(c => c.id === call.id) || !tools.some(t => t.name === call.name)) throw invalidResponse();
+        const args = JSON.parse(call.arguments);
+        if (!args || typeof args !== 'object' || Array.isArray(args)) throw invalidResponse();
+        calls.push({ ...call, arguments: args });
       }
-      const args = JSON.parse(call.arguments);
-      if (!args || typeof args !== 'object' || Array.isArray(args)) throw invalidResponse();
-      const toolCall = { ...call, arguments: args };
       emit?.('', true);
-      return text ? { text, toolCall } : { toolCall };
+      return { ...(text && { text }), ...(calls.length === 1 ? { toolCall: calls[0] } : { toolCalls: calls }) };
     }
     const chunk = JSON.parse(data);
     if (contextRejected(chunk.error)) throw new ProviderContextError();
@@ -141,11 +142,14 @@ async function readCompletion(body, model, allowReportedAlias, tools, usage, ela
       if (delta.content.length) usage.firstOutputMs ??= elapsed();
       if (delta.content.length) emit?.(delta.content);
     }
-    if (delta.tool_calls != null) {
-      if (!Array.isArray(delta.tool_calls) || delta.tool_calls.length !== 1) throw invalidResponse();
-      const [fragment] = delta.tool_calls;
-      if ((fragment.index ?? 0) !== 0 || (fragment.type != null && fragment.type !== 'function')) throw invalidResponse();
-      call ??= { id: '', name: '', arguments: '' };
+    if (delta.tool_calls != null && (!Array.isArray(delta.tool_calls) || !delta.tool_calls.length ||
+        (!multipleTools && delta.tool_calls.length !== 1))) throw invalidResponse();
+    for (const fragment of delta.tool_calls ?? []) {
+      const index = fragment.index ?? 0;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= (multipleTools ? 8 : 1) ||
+          (fragment.type != null && fragment.type !== 'function')) throw invalidResponse();
+      const call = fragments.get(index) ?? { id: '', name: '', arguments: '' };
+      fragments.set(index, call);
       // Vertex and LiteLLM use different envelopes for the same in-flight proof.
       for (const [key, signature] of [['thoughtSignature', fragment.extra_content?.google?.thought_signature],
         ['providerSignature', fragment.provider_specific_fields?.thought_signature]]) {
@@ -186,12 +190,14 @@ export function chatCompletionsEndpoint(baseURL) {
   return endpoint;
 }
 
+export function wireDefinitions(tools) {
+  return tools.map(({ name, description, parameters }) => ({ type: 'function', function: { name, description, parameters } }));
+}
+
 export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allowReportedAlias = false }) {
   const endpoint = chatCompletionsEndpoint(baseURL);
-  return async function complete({ model, messages, tools = [], toolChoice, contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens, onText }) {
-    const definitions = tools.map(({ name, description, parameters }) => ({
-      type: 'function', function: { name, description, parameters }
-    }));
+  return async function complete({ model, messages, tools = [], toolChoice, contextBudget = 8192, cacheMode = 'auto', thread = 'window', maxTokens, onText, multipleTools = false }) {
+    const definitions = wireDefinitions(tools);
     const outgoing = fitHistory(messages.map(wireMessage), contextBudget, definitions);
     const usage = estimatedUsage(outgoing, definitions);
     const payload = { model, messages: outgoing, stream: true, stream_options: { include_usage: true } };
@@ -218,7 +224,7 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch, allo
     }
     // Neither a supplier error body nor a JSON parser error should reach the transcript.
     const emit = streamedText(onText, apiKey);
-    const result = await readCompletion(response.body, model, allowReportedAlias, tools, usage, elapsed, emit).catch(error => {
+    const result = await readCompletion(response.body, model, allowReportedAlias, tools, usage, elapsed, emit, multipleTools).catch(error => {
       if (error instanceof ProviderContextError) throw error;
       throw invalidResponse();
     });

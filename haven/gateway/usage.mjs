@@ -10,9 +10,9 @@ function estimateText(text) {
 }
 
 export function estimatedOutput(result) {
-  if (!result || (typeof result.text !== 'string' && !result.toolCall)) return null;
-  const call = result.toolCall;
-  const toolText = call ? JSON.stringify({ name: call.name, arguments: call.arguments }) : '';
+  if (!result || (typeof result.text !== 'string' && !result.toolCall && !result.toolCalls)) return null;
+  const calls = result.toolCalls ?? (result.toolCall ? [result.toolCall] : []);
+  const toolText = calls.map(({ name, arguments: args }) => JSON.stringify({ name, arguments: args })).join('');
   return estimateText((result.text ?? '') + toolText);
 }
 

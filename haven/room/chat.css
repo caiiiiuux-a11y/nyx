@@ -53,6 +53,7 @@ margin: 0; font: bold clamp(27px,6.2vw,37px)/1.1 var(--chat-serifs);
   font: 600 clamp(11px,2.7vw,15px)/1.5 var(--chat-serifs); letter-spacing: .11em; text-transform: uppercase;
 }
 .chat-date::after,.chat-date::before { content: ""; width: 35px; height: 1px; background: #b59c83; }
+.chat-date .tools-link { color: var(--chat-blue); text-underline-offset: 3px; letter-spacing: .03em; padding-block: 5px; }
 .memory-lab-guide { margin: 2px 16px; color: var(--chat-ink); font-size: 14px; text-align: center; }
 .memory-lab-guide summary { cursor: pointer; }
 .memory-lab-guide summary { padding: 7px; color: var(--chat-blue); }

@@ -8,10 +8,8 @@ import { lexicalQuery } from './archive-search.mjs';
 const exec = promisify(execFile);
 const serverName = 'aru-memory';
 
-// Use the user's existing OAuth client. Neither the MCP credentials nor the
-// private bucket report are available to the browser or to the chat model.
-async function readConnectedOmbre(dashboardOrigin, name, inputs, selectHit) {
-  if (name !== 'breath' && name !== 'breath_search') throw Error('Unsupported Ombre read');
+// The app-server owns OAuth. Only this room's selected MCP server is addressable.
+async function withConnectedOmbre(dashboardOrigin, use) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('HAVEN_')));
   const [{ stdout }, metadata] = await Promise.all([
     exec('codex', ['mcp', 'get', serverName, '--json'], { env, windowsHide: true, timeout: 12000 }),
@@ -25,7 +23,7 @@ async function readConnectedOmbre(dashboardOrigin, name, inputs, selectHit) {
     throw Error('The authorized MCP client does not match this room’s Ombre.');
   }
   const child = spawn('codex', ['app-server', '--stdio'], {
-    windowsHide: true, env, stdio: ['pipe', 'pipe', 'ignore'], timeout: 90000
+    windowsHide: true, env, stdio: ['pipe', 'pipe', 'ignore'], timeout: 180000
   });
   const lines = createInterface({ input: child.stdout });
   const input = lines[Symbol.asyncIterator]();
@@ -52,21 +50,35 @@ async function readConnectedOmbre(dashboardOrigin, name, inputs, selectHit) {
     // An ephemeral MCP session makes no model turn and creates no saved Codex chat.
     const { thread } = await request('thread/start', { ephemeral: true, sandbox: 'read-only', cwd: process.cwd() });
     const status = await request('mcpServerStatus/list', { threadId: thread.id, serverName, detail: 'toolsAndAuthOnly' });
-    if (!status.data?.some(s => s.name === serverName && s.tools?.[name])) throw Error('Ombre read unavailable');
-    for (const args of inputs) {
-      const result = await request('mcpServer/tool/call', { threadId: thread.id, server: serverName, tool: name, arguments: args });
-      if (result.isError) throw Error('Ombre search failed');
-      const text = result.structuredContent?.result ?? result.content?.find(b => b.type === 'text')?.text;
-      if (typeof text !== 'string' || !text.trim()) throw Error('Missing Ombre receipt');
-      const hit = selectHit(text, args.query);
-      if (hit) return args === inputs[0] ? hit : { ...hit, matchedQuery: args.query };
-    }
-    return null;
+    const tools = status.data?.find(server => server.name === serverName)?.tools;
+    if (!tools || !Object.keys(tools).length) throw Error('Ombre tool catalog unavailable');
+    return await use(tools, async (name, args) => {
+      if (!Object.hasOwn(tools, name)) throw Error('Unknown Ombre tool');
+      return request('mcpServer/tool/call', { threadId: thread.id, server: serverName, tool: name, arguments: args });
+    });
   } finally {
     lines.close();
     child.stdin.end();
     child.kill();
   }
+}
+
+function resultText(result) {
+  const text = result.structuredContent?.result ?? result.content?.filter(b => b.type === 'text').map(b => b.text).join('\n');
+  if (typeof text !== 'string' || !text.trim()) throw Error('Missing Ombre receipt');
+  return text;
+}
+
+function readConnectedOmbre(origin, name, inputs, selectHit) {
+  return withConnectedOmbre(origin, async (_, call) => {
+    for (const args of inputs) {
+      const result = await call(name, args);
+      if (result.isError) throw Error('Ombre read failed');
+      const hit = selectHit(resultText(result), args.query);
+      if (hit) return args === inputs[0] ? hit : { ...hit, matchedQuery: args.query };
+    }
+    return null;
+  });
 }
 
 export function searchConnectedOmbre(origin, terms, selectHit) {
@@ -104,8 +116,9 @@ function shortExcerpt(body, query) {
 
 // Ombre 2.16.3 frames header + optional metadata + verbatim body in Unicode code points.
 // The digest and length distinguish the actual body from protocol-looking lines written in a memory.
-export function firstOmbreExcerpt(report, query) {
+export function ombreExcerpts(report, query, limit = 1) {
   const frames = /^([^\r\n]*?\[bucket_id:([^\]\r\n]{1,256})\][^\r\n]*?) \[content_role:stored_memory_data\] \[instructions:false\] \[may_call_tools:false\] \[boundary_id:[a-f0-9]{24}\] \[payload_chars:(\d{1,8})\] \[payload_sha256:([a-f0-9]{64})\](?=\r?\n)/gmu;
+  const hits = [];
   let frame, sawFrame = false;
   while ((frame = frames.exec(report))) {
     const [, header, bucketId, size, digest] = frame;
@@ -121,19 +134,40 @@ export function firstOmbreExcerpt(report, query) {
     if (header.includes('非检索命中')) continue;
     const body = tail.replace(/^(?:\r?\n(?:💭 meaning:|🖼️ media:)[^\r\n]*)*\r?\n/u, '');
     const excerpt = shortExcerpt(body, query);
-    if (excerpt) return { bucketId, excerpt, ...(header.includes('已删除到档案') && { archived: true }),
-      ...(header.includes('[语义关联]') && { semantic: true }) };
+    if (excerpt) hits.push({ bucketId, excerpt, ...(header.includes('已删除到档案') && { archived: true }),
+      ...(header.includes('[语义关联]') && { semantic: true }) });
+    if (hits.length >= limit) break;
   }
   if (!sawFrame && !/没有匹配到|没有可浮现|记忆池现在是空的|权重池暂时平静/u.test(report)) {
     throw Error('Unrecognized Ombre receipt');
   }
-  return null;
+  return hits;
+}
+
+export function firstOmbreExcerpt(report, query) {
+  return ombreExcerpts(report, query)[0] ?? null;
 }
 
 export function createPersonalOmbre(origin) {
+  let catalog, expires = 0;
   return {
-    surface: () => readConnectedOmbre(origin, 'breath', [{}], firstOmbreExcerpt),
-    search: (query, domain) => readConnectedOmbre(origin, 'breath_search',
-      [{ query, ...(domain && { domain }), max_results: 5 }], firstOmbreExcerpt)
+    listTools({ refresh = false } = {}) {
+      if (refresh || !catalog || Date.now() >= expires) {
+        expires = Date.now() + 60_000;
+        const pending = withConnectedOmbre(origin, tools => Object.values(tools).map(tool => ({
+          name: tool.name, description: tool.description, parameters: tool.inputSchema
+        }))).catch(error => { if (catalog === pending) catalog = undefined; throw error; });
+        catalog = pending;
+      }
+      return catalog;
+    },
+    callTool(name, args, beforeDispatch) {
+      return withConnectedOmbre(origin, async (_, call) => {
+        beforeDispatch?.();
+        const result = await call(name, args);
+        return { text: resultText(result), isError: Boolean(result.isError) };
+      });
+    },
+    surface: () => readConnectedOmbre(origin, 'breath', [{}], firstOmbreExcerpt)
   };
 }
