@@ -51,7 +51,9 @@ let fixture;
 let live;
 if (liveMode) {
   const { createLiveRoutes } = await import('./live-routes.mjs');
+  const { createLocalCredentialStore } = await import('./local-credential-store.mjs');
   live = createLiveRoutes({ baseURL: process.env.HAVEN_TRIAL_BASE_URL, apiKey: process.env.HAVEN_TRIAL_API_KEY,
+    credentialStore: createLocalCredentialStore(dirname(database)),
     model: process.env.HAVEN_TRIAL_MODEL, profileFile: resolve(dirname(database), 'providers.json') });
   Object.assign(storeOptions, { provider: 'live-lab', models: live.active('mock').models,
     modelsForRoute: route => live.active(route).models,
@@ -145,7 +147,7 @@ function historyOptions(params) {
 
 async function api(req, res, url) {
   if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
-    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/provider-cache'].includes(url.pathname)) {
+    '/app/routes', '/app/routes/providers', '/app/routes/models', '/app/routes/forget-key', '/app/provider-cache'].includes(url.pathname)) {
     throw new RequestError(404, '试验线路只开放聊天');
   }
   const origin = req.headers.origin;
@@ -155,11 +157,12 @@ async function api(req, res, url) {
   if (live && req.method === 'POST' && origin !== url.origin) {
     throw new RequestError(403, '请从本机小屋内操作。');
   }
-  if (live && ['/app/routes/providers', '/app/routes/models'].includes(url.pathname)) {
+  if (live && url.pathname.startsWith('/app/routes/')) {
     if (req.method !== 'POST') throw new RequestError(405, '请求方法有误');
-    const input = await readJson(req, 8192);
-    const result = url.pathname === '/app/routes/providers' ? await live.add(store, input) : await live.refresh(store, input);
-    return json(res, 200, result);
+    const action = { '/app/routes/providers': live.add, '/app/routes/models': live.refresh,
+      '/app/routes/forget-key': live.forgetKey }[url.pathname];
+    if (!action) throw new RequestError(404, '接口不存在');
+    return json(res, 200, await action(store, await readJson(req, 8192)));
   }
   if (url.pathname === '/app/routes') {
     if (req.method === 'GET') {

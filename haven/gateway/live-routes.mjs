@@ -58,10 +58,46 @@ function readProfiles(file) {
   return data;
 }
 
-export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImpl }) {
+export function createLiveRoutes({ baseURL, apiKey, model, profileFile, credentialStore, fetchImpl }) {
   const profiles = new Map(readProfiles(profileFile).map(p => [p.id, p]));
   const keys = new Map();
+  const savedKeys = new Set();
+  const keyStorage = credentialStore?.available ? 'device' : 'session';
   const pending = new Map();
+
+  // Profile metadata may move between machines. Only a key bound to this
+  // Windows account, profile and exact endpoint can be used here.
+  if (keyStorage === 'device') {
+    for (const route of profiles.values()) {
+      const key = credentialStore.read(route.id, route.endpoint);
+      if (key) {
+        keys.set(route.id, key);
+        savedKeys.add(route.id);
+      }
+    }
+  }
+
+  function remember(route, credential) {
+    if (!credential) return;
+    if (keyStorage === 'device' && (!savedKeys.has(route.id) || keys.get(route.id) !== credential)) {
+      try { credentialStore.write(route.id, route.endpoint, credential); }
+      catch { throw new RequestError(500, '未能将密钥保存到这台电脑，请重试。'); }
+      savedKeys.add(route.id);
+    }
+    keys.set(route.id, credential);
+  }
+
+  function clearKey(route) {
+    // A configured environment key is an initial default. An explicit removal
+    // (or a 401) should not silently reactivate that default on the next launch.
+    if (route.configured && !route.ignoreConfiguredKey) save({ ...route, ignoreConfiguredKey: true });
+    if (keyStorage === 'device') {
+      try { credentialStore.remove(route.id, route.endpoint); }
+      catch { throw new RequestError(500, '未能从这台电脑清除密钥，请重试。'); }
+      savedKeys.delete(route.id);
+    }
+    keys.delete(route.id);
+  }
 
   // Commit metadata before publishing the new snapshot. Keys never enter profiles.
   function save(profile) {
@@ -85,7 +121,9 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
         endpoint, models: model ? [model] : [], requiresKey: true, catalogReady: false, configured: true };
       save(configured);
     }
-    if (apiKey) keys.set(configured.id, validKey(apiKey));
+    if (apiKey && !configured.ignoreConfiguredKey && !keys.has(configured.id)) {
+      keys.set(configured.id, validKey(apiKey));
+    }
   }
 
   function get(id) {
@@ -96,13 +134,14 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
 
   function active(id) {
     const { id: routeId, label, models, endpoint, requiresKey, catalogReady } = get(id);
-    return { id: routeId, label, models, endpoint, requiresKey, catalogReady, hasKey: keys.has(id) };
+    return { id: routeId, label, models, endpoint, requiresKey, catalogReady, hasKey: keys.has(id),
+      keyStorage, keySaved: savedKeys.has(id) };
   }
 
   function status(store, thread = 'window') {
     const selected = active(store.windowRoute(thread));
     return { thread, route: selected.id, model: store.windowModel(thread), endpoint: selected.endpoint,
-      hasKey: selected.hasKey, routes: [active('mock'), ...Array.from(profiles.keys(), active)] };
+      hasKey: selected.hasKey, keyStorage, routes: [active('mock'), ...Array.from(profiles.keys(), active)] };
   }
 
   function select(store, { route: id, thread = 'window', model: selectedModel, apiKey: inputKey }) {
@@ -112,11 +151,20 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
     if (id === 'mock' && inputKey != null) throw new RequestError(400, '本机模拟无需密钥。');
     const replacement = inputKey == null ? null : validKey(inputKey);
     if (route.requiresKey && !replacement && !keys.has(id)) throw new RequestError(400, '请填写这条线路的密钥。');
+    store.windowModel(thread);
+    const changed = replacement && replacement !== keys.get(id);
+    remember(route, replacement ?? keys.get(id));
+    if (changed) pending.delete(id);
     store.selectModel({ thread, route: id, model: selected });
-    if (replacement && replacement !== keys.get(id)) {
-      pending.delete(id);
-      keys.set(id, replacement);
-    }
+    return status(store, thread);
+  }
+
+  function forgetKey(store, { route: id, thread = 'window' }) {
+    store.windowModel(thread);
+    const route = get(id);
+    if (id === 'mock') throw new RequestError(400, '本机模拟没有线路密钥。');
+    clearKey(route);
+    pending.delete(id);
     return status(store, thread);
   }
 
@@ -136,16 +184,16 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
     if (id === 'mock') throw new RequestError(400, '本机模拟无需拉取模型。');
     const credential = inputKey ? validKey(inputKey) : keys.get(id);
     if (route.requiresKey && !credential) throw new RequestError(400, '请填写这条线路的密钥。');
-    const ticket = Symbol();
+    const ticket = { credential };
     pending.set(id, ticket);
     try {
       const models = await catalog(route.endpoint, credential);
       if (pending.get(id) !== ticket) throw new RequestError(409, '线路已有更新，请重新读取目录。');
-      save({ ...route, models, requiresKey: Boolean(credential), catalogReady: true });
-      if (credential) keys.set(id, credential);
+      remember(route, credential);
+      save({ ...get(id), models, requiresKey: Boolean(credential), catalogReady: true });
       return status(store, thread);
     } catch (error) {
-      if (error.status === 401 && pending.get(id) === ticket && keys.get(id) === credential) keys.delete(id);
+      if (credential && error.status === 401 && pending.get(id) === ticket && keys.get(id) === credential) clearKey(route);
       throw error;
     } finally {
       if (pending.get(id) === ticket) pending.delete(id);
@@ -164,8 +212,13 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
     const models = await catalog(endpoint, credential);
     if (!models.length) throw new RequestError(400, '这个地址没有返回可选模型，请核对后再添加。');
     const id = randomUUID();
-    save({ id, label: name, endpoint, models, requiresKey: Boolean(credential), catalogReady: true });
-    if (credential) keys.set(id, credential);
+    const route = { id, label: name, endpoint, models, requiresKey: Boolean(credential), catalogReady: true };
+    remember(route, credential);
+    try { save(route); }
+    catch (error) {
+      if (credential) clearKey(route);
+      throw error;
+    }
     return { ...status(store, thread), addedRoute: id };
   }
 
@@ -186,7 +239,10 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
       return { ...result, provider: route.id, ...(archiveHits && { archiveHits }) };
     } catch (error) {
       if (/HTTP 401\b/.test(error.message)) {
-        if (keys.get(route.id) === credential) keys.delete(route.id);
+        if (credential && keys.get(route.id) === credential) {
+          clearKey(get(route.id));
+          if (pending.get(route.id)?.credential === credential) pending.delete(route.id);
+        }
         throw new RequestError(401, '线路拒绝了这个密钥，请在杂物间重新填写后重试。');
       }
       if (/HTTP 403\b/.test(error.message)) throw new RequestError(403, '这条线路拒绝访问所选模型，请核对模型权限。');
@@ -194,5 +250,5 @@ export function createLiveRoutes({ baseURL, apiKey, model, profileFile, fetchImp
       throw error;
     }
   }
-  return { status, select, active, add, refresh, complete };
+  return { status, select, active, add, refresh, forgetKey, complete };
 }

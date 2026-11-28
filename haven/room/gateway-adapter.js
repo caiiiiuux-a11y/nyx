@@ -109,6 +109,7 @@ export function createGatewayChat(mediaAssets) {
     openWindow(id) { active.select(id); },
     routes() { return request('routes?thread=' + encodeURIComponent(active.id)); },
     refreshModels(settings) { return request('routes/models', { ...settings, thread: active.id }); },
+    forgetKey(route) { return request('routes/forget-key', { route, thread: active.id }); },
     addProvider(settings) { return request('routes/providers', { ...settings, thread: active.id }); },
     async selectRoute(settings) {
       const thread = active.id;

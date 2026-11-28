@@ -138,7 +138,11 @@ body[data-page="chat"] .message-actions .usage-button {
 #say { grid-area: input; width: 100%; min-width: 0; display: block; resize: none; box-sizing: border-box; border: 0; background: transparent; padding: 8px; font: 16px/22px var(--chat-text); height: 38px; }
 .composer.is-writing .input-shell { grid-template-areas: "input input input" "attach model send"; border-radius: 22px; }
 .composer.is-writing #say { padding-inline: 12px; }
-body[data-page="chat"] #model { display: none; grid-area: model; justify-self: start; width: auto; max-width: 100%; min-width: 0; height: 40px; padding: 0; cursor: pointer; border: 0; color: #496c7e; background: transparent; font: 600 14px var(--chat-text); text-overflow: ellipsis; }
+body[data-page="chat"] #model {
+  display: none; grid-area: model; justify-self: start; width: auto; max-width: 100%; min-width: 0;
+  height: 44px; padding: 0; cursor: pointer; border: 0; background: transparent;
+  color: #52748a; font: 400 .8rem/1.4 var(--chat-text); text-overflow: ellipsis;
+}
 body[data-page="chat"] .composer.is-writing #model { display: block; }
 #say::placeholder { color: #866c58; }
 #say { overflow-y: auto; scrollbar-width: none; }

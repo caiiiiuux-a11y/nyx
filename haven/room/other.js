@@ -18,6 +18,12 @@ function status(message, error = false) {
 
 function selectedRoute() { return state.routes.find(option => option.id === provider.value); }
 
+function storageHint(storage) {
+  return storage === 'device'
+    ? '密钥会加密保存在这台电脑的 Windows 账户中。'
+    : '密钥保留到本次服务退出。';
+}
+
 async function perform(progress, work) {
   if (busy) return;
   busy = true;
@@ -48,19 +54,21 @@ function showProvider(preferredModel) {
   }
   const remote = live && route.id !== 'mock';
   const hasKey = route.hasKey ?? state.hasKey;
+  const keyStorage = route.keyStorage ?? state.keyStorage;
   $('refresh-models').hidden = !remote || route.catalogReady === undefined;
   $('route-connection').hidden = !remote;
   $('route-connection').open = remote && !hasKey && route.requiresKey !== false;
   $('route-endpoint').textContent = route.endpoint || state.endpoint || '';
   key.value = '';
+  key.placeholder = hasKey ? '留空沿用，输入可替换' : '粘贴 API Key';
   key.disabled = !remote;
   key.required = remote && !hasKey && route.requiresKey !== false;
   model.required = models.length > 0;
   $('route-save').disabled = !models.length;
-  $('route-key-hint').textContent = hasKey
-    ? '本次服务已保存密钥。留空沿用，输入可替换。'
-    : models.length ? '密钥只留在本机服务内存，服务重启后需重新填写。'
-      : '在这里填入密钥，再点回复模型旁的 ↻ 读取目录。密钥只留在本机服务内存。';
+  $('forget-key').hidden = !remote || !keyStorage || !(hasKey || route.keySaved);
+  $('route-key-hint').textContent = route.keySaved
+    ? '已保存在这台电脑，重启后可继续使用。'
+    : storageHint(keyStorage);
 }
 
 function render(next, chosenRoute = next.route, chosenModel) {
@@ -70,8 +78,8 @@ function render(next, chosenRoute = next.route, chosenModel) {
   provider.disabled = state.routes.length === 1;
   $('provider-tools').hidden = !live || !state.routes.some(route => route.catalogReady !== undefined);
   const href = '/chat/?thread=' + encodeURIComponent(state.thread);
-  $('route-chat').href = href;
   document.querySelector('#room-nav a[href^="/chat/"]').href = href;
+  $('provider-key-hint').textContent = storageHint(next.keyStorage);
   showProvider(chosenModel);
 }
 
@@ -114,6 +122,16 @@ provider.onchange = () => {
   initialDiscovery();
 };
 $('refresh-models').onclick = () => refreshModels();
+$('forget-key').onclick = async () => {
+  const route = selectedRoute();
+  const preferred = model.value;
+  await perform('正在移除密钥…', async () => {
+    render(await chatService.forgetKey(route.id), route.id, preferred);
+    $('route-connection').open = true;
+    status('已忘记这条线路的密钥。');
+  });
+  if (!selectedRoute().hasKey) key.focus();
+};
 key.oninvalid = () => { $('route-connection').open = true; };
 $('new-provider').onclick = () => toggleCreate(createForm.hidden);
 $('cancel-provider').onclick = () => { toggleCreate(false); $('new-provider').focus(); };

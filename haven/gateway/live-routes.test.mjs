@@ -46,7 +46,7 @@ test('a rejected old credential cannot clear its replacement or switch the saved
   assert.equal(attempts.length, 2);
 });
 
-test('profiles discover full catalogs, keep duplicate model names scoped, persist metadata and drop keys on restart', async t => {
+test('profiles discover full catalogs, keep duplicate model names scoped and remain session-only without a protected store', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'haven-catalog-'));
   const profileFile = join(dir, 'providers.json');
   const calls = [];
@@ -88,4 +88,74 @@ test('profiles discover full catalogs, keep duplicate model names scoped, persis
   assert.equal(routes.status(store).route, a.addedRoute);
   assert.equal(routes.active(a.addedRoute).models.length, 134);
   assert.equal(routes.active(a.addedRoute).hasKey, false);
+});
+
+test('a protected route key survives restart, can be replaced, and a pending refresh cannot undo forgetting it', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'haven-remember-route-'));
+  const profileFile = join(dir, 'providers.json');
+  const secrets = new Map();
+  const credentialStore = {
+    available: true,
+    read: (id, url) => secrets.get(id + url),
+    write: (id, url, key) => secrets.set(id + url, key),
+    remove: (id, url) => secrets.delete(id + url)
+  };
+  let finish, gated = false, deny = false;
+  const authorizations = [];
+  const fetchImpl = async (_url, request) => {
+    authorizations.push(request.headers.Authorization);
+    if (gated) await new Promise(resolve => { finish = resolve; });
+    return deny ? new Response(null, { status: 401 }) : Response.json({ data: [{ id: 'shared' }] });
+  };
+  const reopen = () => createLiveRoutes({ profileFile, credentialStore, fetchImpl });
+  let routes = reopen();
+  const store = openStore(':memory:', { models: routes.active('mock').models,
+    modelsForRoute: id => routes.active(id).models, archiveRecall: false });
+  t.after(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+  const { addedRoute: route } = await routes.add(store, {
+    label: '测试', baseURL: 'https://test.example/v1', apiKey: 'fixture-1'
+  });
+  routes = reopen();
+  assert.equal(routes.active(route).keySaved, true);
+  await routes.refresh(store, { route });
+  assert.equal(authorizations.at(-1), 'Bearer fixture-1');
+  routes.select(store, { route, model: 'shared', apiKey: 'fixture-2' });
+  routes = reopen();
+  await routes.refresh(store, { route });
+  assert.equal(authorizations.at(-1), 'Bearer fixture-2');
+  await routes.refresh(store, { route, apiKey: 'fixture-3' });
+  routes = reopen();
+  gated = true;
+  const refresh = routes.refresh(store, { route });
+  assert.equal(authorizations.at(-1), 'Bearer fixture-3');
+  const forgotten = routes.forgetKey(store, { route });
+  assert.equal(forgotten.hasKey, false);
+  assert.equal(forgotten.routes.find(r => r.id === route).keySaved, false);
+  finish();
+  await assert.rejects(refresh, { status: 409 });
+  routes = reopen();
+  assert.equal(routes.active(route).hasKey, false);
+  gated = false;
+  routes.select(store, { route, apiKey: 'fixture-4' });
+  deny = true;
+  await assert.rejects(routes.refresh(store, { route }), { status: 401 });
+  assert.equal(reopen().active(route).hasKey, false);
+  assert.ok(!readFileSync(profileFile, 'utf8').includes('fixture-'));
+  assert.ok(!JSON.stringify(forgotten).includes('fixture-'));
+});
+
+test('forgetting a configured provider survives restart even when the environment still supplies its initial key', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'haven-configured-key-'));
+  const profileFile = join(dir, 'providers.json');
+  const reopen = () => createLiveRoutes({
+    profileFile, baseURL: 'https://configured.example/v1', apiKey: 'fixture-configured-key', model: 'shared'
+  });
+  const routes = reopen();
+  const store = openStore(':memory:', { models: routes.active('mock').models,
+    modelsForRoute: id => routes.active(id).models, archiveRecall: false });
+  t.after(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+  assert.equal(routes.active('gemini').hasKey, true);
+  routes.forgetKey(store, { route: 'gemini' });
+  assert.equal(reopen().active('gemini').hasKey, false);
+  assert.ok(!readFileSync(profileFile, 'utf8').includes('fixture-configured-key'));
 });
