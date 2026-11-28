@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { assets, models } from '../room/catalog.mjs';
+import { assets, models as mockModels } from '../room/catalog.mjs';
 import { archiveQuery, buildModelRequest, generateMockReply, RECENT_TURN_LIMIT } from './model.mjs';
 import { createArchiveSearch } from './archive-search.mjs';
 import { createEvidenceStore } from './evidence.mjs';
@@ -15,8 +15,8 @@ export class RequestError extends Error {
   }
 }
 
-function checkedModel(model) {
-  if (!models.includes(model)) throw new RequestError(400, '请选择可用的模拟模型');
+function checkedModel(model, models) {
+  if (!models.includes(model)) throw new RequestError(400, '请选择当前线路提供的模型');
   return model;
 }
 
@@ -27,7 +27,7 @@ function checkedRequestId(id) {
   return id;
 }
 
-function checkedDraft(input) {
+function checkedDraft(input, models) {
   const text = input.text ?? '';
   const media = input.media || null;
   if (typeof text !== 'string' || text.length > 32000 || (!text.trim() && !media)) {
@@ -45,7 +45,7 @@ function checkedDraft(input) {
     }
     quote = { id, who, text: excerpt };
   }
-  return { text, media, quote, model: input.model == null ? null : checkedModel(input.model) };
+  return { text, media, quote, model: input.model == null ? null : checkedModel(input.model, models) };
 }
 
 function humanMessage(turn) {
@@ -77,7 +77,7 @@ function messagesFromTurn(turn) {
 
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
-export function openStore(filename, { complete = generateMockReply, embedder, memoryLab } = {}) {
+export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels, provider = 'mock' } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA busy_timeout=5000;
@@ -171,6 +171,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     let memorySources;
     try {
       result = await complete(request, options);
+      memoryTool = result?.memoryTool;
       if (executeLabTool && result?.toolCall) {
         const call = result.toolCall;
         const receipt = await executeLabTool(turn.id, human, call);
@@ -191,13 +192,13 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       }
       if (result?.toolCall || typeof result?.text !== 'string') throw new Error('Invalid completion');
     } catch {
-      throw new RequestError(503, '消息已保存，模拟回复暂时不可用，请重试');
+      throw new RequestError(503, '消息已保存，当前模型暂时无法完成回复，请重试');
     }
     return {
       id: turn.id * 2, from: 'ai', text: result.text,
       ts: previousAnswer?.ts ?? new Date().toISOString(),
       meta: {
-        speaker: 'Adrian', provider: 'mock', model, thread, fallback: false, attachments: [],
+        speaker: 'Adrian', provider, model, thread, fallback: false, attachments: [],
         ...(memoryTool && { memoryTool }),
         ...(memorySources?.length && { sourceRefs: memorySources }),
         ...(archive && { sourceRefs: archive.hits.map(({ thread, messageId, start, end, text }) => ({
@@ -237,7 +238,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
 
   async function send(input) {
     const key = checkedRequestId(input.requestId);
-    const draft = checkedDraft(input);
+    const draft = checkedDraft(input, models);
     const encoded = JSON.stringify(draft);
     const id = transaction(() => {
       const existing = db.prepare('SELECT id, draft FROM turns WHERE request_id=?').get(key);
@@ -258,7 +259,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     const key = checkedRequestId(input.requestId);
     const { id } = input;
     if (!Number.isSafeInteger(id) || id < 2 || id % 2) throw new RequestError(400, '请选择 Adrian 的回复');
-    const model = input.model == null ? null : checkedModel(input.model);
+    const model = input.model == null ? null : checkedModel(input.model, models);
     const selected = model ?? currentModel();
     return inRoomOrder(async () => {
       const old = db.prepare('SELECT * FROM regenerations WHERE request_id=?').get(key);
@@ -280,7 +281,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
   }
 
   function selectModel(input) {
-    const model = checkedModel(input.model);
+    const model = checkedModel(input.model, models);
     db.prepare("INSERT INTO settings(name,value) VALUES('model',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value")
       .run(model);
     return { model };

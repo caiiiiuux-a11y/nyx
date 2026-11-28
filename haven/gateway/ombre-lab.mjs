@@ -73,14 +73,14 @@ export function fixtureArguments(name, args) {
   if (name === 'hold' && keys.length === 1 && args.content === memoryLabExample.fact) {
     return { content: args.content, title: 'Paperfinch', tags: 'synthetic,haven-lab', importance: 5 };
   }
-  if (name === 'breath_search' && keys.length === 1 && args.query === memoryLabExample.keyword) {
+  if (name === 'breath_search' && keys.length === 1 && [memoryLabExample.keyword, 'Winterfern'].includes(args.query)) {
     return { query: args.query, max_results: 5 };
   }
   if (name === 'dream' && keys.length === 0) return { window_hours: 48, inspiration: false };
   throw new Error('隔离记忆只接受约定的合成示例');
 }
 
-export function fixtureReceipt(name, { text }) {
+export function fixtureReceipt(name, { text }, query = memoryLabExample.keyword) {
   if (typeof text !== 'string' || !text.trim() || /\[OB-E004\]/.test(text)) throw new Error('Ombre 未能完成合成记忆操作');
   let bucketId;
   if (name === 'hold') {
@@ -90,7 +90,11 @@ export function fixtureReceipt(name, { text }) {
     // Only bind a real hit to its own body. Ombre can append unrelated associations.
     const entries = text.matchAll(/^([^\n]*?\[bucket_id:([^\]\r\n]{1,200})\][^\n]*)\r?\n([^\r\n]+)/gm);
     for (const [, header, id, body] of entries) {
-      if (!header.includes('非检索命中') && body === memoryLabExample.fact) bucketId = id;
+      if (header.includes('非检索命中')) continue;
+      if (query === 'Winterfern' && body.startsWith('Winterfern synthetic memory.')) {
+        return { text, bucketId: id, excerpt: body };
+      }
+      if (query === memoryLabExample.keyword && body === memoryLabExample.fact) bucketId = id;
     }
   } else if (name === 'dream') {
     const blocks = text.matchAll(/<<<STORED_MEMORY_DATA boundary="([0-9a-f]+)">>>([\s\S]*?)<<<END_STORED_MEMORY_DATA boundary="\1">>>/g);
@@ -114,7 +118,7 @@ export function createOmbreLab() {
       for (const file of clientFiles) clients[file] = await readFile(new URL(file, oldClients), 'utf8');
       const payload = JSON.stringify({ name, arguments: toolArgs, clients });
       const raw = await docker(['exec', '-i', id, 'python', '-I', '-B', '-c', helper], payload);
-      return fixtureReceipt(name, JSON.parse(raw));
+      return fixtureReceipt(name, JSON.parse(raw), toolArgs.query);
     }
   };
 }

@@ -1,8 +1,20 @@
 # Iris & Adrian’s Room · M1 交接
 
-更新于 2026-11-27。金金负责方向与最终决定，Astra 实现，阿川评审。
+更新于 2026-11-28。金金负责方向与最终决定，Astra 实现，阿川评审。
 
 **开工前先读[现有资产与组装清单](./HAVEN-INVENTORY.md)。** 金金确定小屋以组装为先。各模块先找现有服务、源码和验收记录，再写缺少的连接。
+
+## Gateway · 模型 API 与续聊
+
+在项目目录运行 `npm run chat:provider-lab`，打开[本机模型试验](http://127.0.0.1:4192/chat/)。需要 Node 24、Python 3 和相邻的 `iris-adrian-home-phase2` 工作树。启动器直接加载旧家园的合成模型服务，普通消息由 Gateway 把有角色的近期对话送入所选 API，按原模型保存回复。数据单独保存在 `.haven-local/provider-lab/chat.sqlite`。浏览器一次显示完整回复。[旧家园合成服务](https://github.com/caiiiiuux-a11y/iris-adrian-home/blob/58f71883d43ffdbd6639b8eda2a40c6f807f4c76/server/fixture.py) · [小屋模型协议适配](../haven/gateway/chat-completions.mjs)
+
+询问「Winterfern 灯塔的标记是什么？」时，合成模型可提出 `memory_search`。Gateway 在旧家园的隔离 Ombre 里执行限定的查找，将命中的摘录按同一调用编号交给模型，再保存最终回复。点头像旁的「⋯」可核对桶号与记忆库摘录。此处使用的旧测试桶独立于聊天原文。[工具执行和回传](../haven/gateway/provider-turn.mjs)
+
+11 月 28 日用 390 × 844 手机视口核对。模型 A 在首轮收到一条 Iris 消息。关闭浏览器会话后重新打开，改选 B，B 收到两条 Iris 消息，第一轮回复仍标模型 A。第三轮中 B 发起 `fixture-memory-search`，从隔离桶 `e42244a062fa` 找到此前聊天里没有的 `fern-lab-529`。浏览器请求全部发往 4192。
+
+复用边界：直接调用旧家园固定版本的测试模型和原有 Ombre 客户端。模型协议参考 Morrow 的[流式接收和工具回传](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L1195-L1307)。Nyx Relay / Tidal Echo 的协议示例用于对照，其服务端文件有单独的 [NOTICE](../relay/NOTICE)。
+
+如需接真实供应商，下一步由金金和阿川确定线路、模型与能送出的上下文范围。4192 目前使用独立的合成模型，4191 继续验证写入、找回和做梦。旧聊天分批导出后仍可分别运行导入预演；这一步没有导入私人档案。
 
 ## 本机聊天 · 隔离记忆试验
 

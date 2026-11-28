@@ -189,7 +189,7 @@ export function createArchiveSearch(db, { embedder, readMessages }) {
       query = query.trim();
       let scores;
       try {
-        scores = await semanticScores(thread, items, query);
+        if (embedder !== false) scores = await semanticScores(thread, items, query);
       } catch (error) {
         // A model outage permits a literal-only result. Storage faults must be reported.
         if (error.code?.startsWith('ERR_SQLITE')) throw error;
@@ -223,7 +223,7 @@ export function createArchiveSearch(db, { embedder, readMessages }) {
         if (hits.length === limit) break;
       }
       return { mode: scores ? 'hybrid' : 'lexical', hits,
-        ...(!scores && { notice: '本机向量服务暂不可用，本次仅按文字检索。' }) };
+        ...(!scores && { notice: embedder === false ? '本次按文字检索试验聊天。' : '本机向量服务暂不可用，本次仅按文字检索。' }) };
     }
   };
 }

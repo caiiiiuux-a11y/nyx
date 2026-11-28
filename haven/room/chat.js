@@ -17,6 +17,7 @@ const attachmentChip = $('attachment-chip');
 const touchInput = matchMedia('(pointer: coarse)').matches;
 const chatScope = chatService.persistent ? 'gateway' : 'preview';
 const memoryLab = document.documentElement.hasAttribute('data-memory-lab');
+const providerLab = document.documentElement.hasAttribute('data-provider-lab');
 const requestedNote = new URLSearchParams(location.search).get('note');
 if (requestedNote !== null) {
   const back = document.querySelector('.chat-heading a');
@@ -226,6 +227,9 @@ function showMemoryDetails(anchor, tool, refs) {
     const text = characters.length > 96 ? characters.slice(0, 96).join('') + '…' : characters.join('');
     content.append(element('blockquote', '', text));
   }
+  if (tool?.excerpt) {
+    content.append(element('p', 'receipt-caption', '记忆库摘录'), element('blockquote', '', tool.excerpt));
+  }
   if (tool?.bucketId) content.append(element('p', 'receipt-id', '记忆编号 ' + tool.bucketId));
   openPanel($('memory-details'), anchor);
 }
@@ -289,7 +293,8 @@ async function keepForLater(message) {
   }
 }
 function menu(m, anchor) {
-  const source = m.from === 'ai' ? 'Adrian · 模拟 ' + m.meta.model : 'Iris';
+  const line = m.meta.provider === 'home-fixture' ? '合成 API · ' : '模拟 ';
+  const source = m.from === 'ai' ? 'Adrian · ' + line + m.meta.model : 'Iris';
   const items = [];
   if (m.from === 'ai') items.push(['重试', () => retryMessage(m), 'retry']);
   items.push(['放进回头聊', () => keepForLater(m), 'keep'],
@@ -439,7 +444,7 @@ function build(m) {
   row.setAttribute('aria-label', me ? 'Iris 的消息' : 'Adrian 的消息');
   const byline = element('div', 'msg-byline');
   byline.append(avatarButton(me ? 'iris' : 'adrian'));
-  const tool = memoryLab && m.meta.memoryTool;
+  const tool = m.meta.memoryTool;
   const refs = (m.meta.sourceRefs || []).filter(ref => typeof ref.excerpt === 'string' && ref.excerpt.trim());
   if (tool || refs.length) {
     const trigger = control(tool ? '这次用到的记忆' : '原话摘录',
@@ -568,6 +573,9 @@ async function loadRoom() {
     room = await chatService.room();
     if (memoryLab) {
       if (!document.querySelector('.memory-lab-guide')) await showMemoryLab();
+    } else if (providerLab) {
+      document.querySelector('.chat-date').textContent = 'Gateway · 旧家园合成 API';
+      say.placeholder = '写一句合成测试消息…';
     } else {
       $('room-date').dateTime = room.date.toLocaleDateString('sv-SE');
       $('room-date').textContent = room.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -576,7 +584,9 @@ async function loadRoom() {
     log.replaceChildren();
     for (const message of room.messages) log.append(build(message));
     if (!room.messages.length) log.append(element('p', 'chat-empty',
-      memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
+      memoryLab ? '点上方「隔离记忆试验」，从「记下」开始。' : providerLab
+        ? '发一句测试消息，再问「Winterfern 灯塔的标记是什么？」'
+        : '在这里发一条测试消息。模拟对话会保存在这台电脑上。'));
     picker.replaceChildren(...room.models.map(model => new Option(model, model)));
     picker.value = room.model;
     storeStatus('');

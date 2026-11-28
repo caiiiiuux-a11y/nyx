@@ -7,16 +7,20 @@ import { openStore, RequestError } from './store.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const { values } = parseArgs({ options: {
-  port: { type: 'string' }, db: { type: 'string' }, 'memory-lab': { type: 'boolean' }
+  port: { type: 'string' }, db: { type: 'string' }, 'memory-lab': { type: 'boolean' }, 'provider-lab': { type: 'boolean' }
 } });
-const labMode = values['memory-lab'] === true;
-const portOption = values.port ?? (labMode ? '4191' : '4190');
+const memoryMode = values['memory-lab'] === true;
+const providerMode = values['provider-lab'] === true;
+if (memoryMode && providerMode) throw new Error('Choose one lab per process.');
+const labMode = memoryMode || providerMode;
+const portOption = values.port ?? (providerMode ? '4192' : memoryMode ? '4191' : '4190');
 const port = Number(portOption);
 if (!/^\d+$/.test(portOption) || !Number.isInteger(port) || port > 65535) throw new Error('Invalid --port');
-if (labMode && (values.db !== undefined || port === 4190)) {
-  throw new Error('The memory lab uses its own chat database and a separate port.');
+if (labMode && (values.db !== undefined || port === 4190 || (providerMode && port === 4191) || (memoryMode && port === 4192))) {
+  throw new Error('Use the dedicated lab database and a separate port.');
 }
-const database = labMode ? resolve(root, '.haven-local/ombre-lab/chat.sqlite') : resolve(values.db ?? resolve(root, '.haven-local/room.sqlite'));
+const labDir = providerMode ? 'provider-lab' : 'ombre-lab';
+const database = labMode ? resolve(root, '.haven-local', labDir, 'chat.sqlite') : resolve(values.db ?? resolve(root, '.haven-local/room.sqlite'));
 const dist = resolve(root, 'dist');
 if (!existsSync(resolve(dist, 'chat/index.html'))) throw new Error('Run npm run build first.');
 
@@ -27,8 +31,18 @@ function inside(dir, path) {
 
 if (inside(dist, database)) throw new Error('The private database must be outside dist.');
 mkdirSync(dirname(database), { recursive: true, mode: 0o700 });
-const memoryLab = labMode ? (await import('./ombre-lab.mjs')).createOmbreLab() : undefined;
-const store = openStore(database, { memoryLab });
+const lab = labMode ? (await import('./ombre-lab.mjs')).createOmbreLab() : undefined;
+const storeOptions = memoryMode ? { memoryLab: lab } : {};
+let fixture;
+if (providerMode) {
+  const { startProviderFixture } = await import('./provider-fixture.mjs');
+  const { createChatCompletions } = await import('./chat-completions.mjs');
+  const { withFixtureMemory } = await import('./provider-turn.mjs');
+  fixture = await startProviderFixture();
+  Object.assign(storeOptions, { models: fixture.models, provider: 'home-fixture', embedder: false,
+    complete: withFixtureMemory(createChatCompletions(fixture), lab) });
+}
+const store = openStore(database, storeOptions);
 const config = JSON.parse(readFileSync(resolve(root, 'vercel.json'), 'utf8'));
 const baseHeaders = Object.fromEntries(config.headers[0].headers.map(({ key, value }) => [key, value]));
 baseHeaders['X-Content-Type-Options'] = 'nosniff';
@@ -77,7 +91,7 @@ function historyOptions(params) {
 
 async function api(req, res, url) {
   if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model'].includes(url.pathname)) {
-    throw new RequestError(404, '记忆试验只开放聊天');
+    throw new RequestError(404, '试验线路只开放聊天');
   }
   if (url.pathname === '/app/history' && req.method === 'GET') {
     return json(res, 200, await store.history(historyOptions(url.searchParams)));
@@ -121,7 +135,7 @@ function asset(req, res, url) {
   res.setHeader('Content-Type', mime[ext] ?? 'application/octet-stream');
   if (file === resolve(dist, 'chat/index.html') || (!labMode && file === resolve(dist, 'living/pocket/index.html'))) {
     res.setHeader('Content-Security-Policy', privateCsp);
-    const mode = labMode ? 'data-chat-store="gateway" data-memory-lab ' : 'data-chat-store="gateway" ';
+    const mode = 'data-chat-store="gateway" ' + (memoryMode ? 'data-memory-lab ' : providerMode ? 'data-provider-lab ' : '');
     const html = readFileSync(file, 'utf8').replace('<html ', '<html ' + mode);
     res.end(req.method === 'HEAD' ? undefined : html);
     return;
@@ -174,7 +188,12 @@ const server = createServer(async (req, res) => {
     json(res, expected ? error.status : 500, { error: expected ? error.message : '本机服务暂时不可用' });
   }
 });
-server.on('close', () => store.close());
+server.on('close', () => { store.close(); fixture?.close(); });
+if (fixture) {
+  server.on('error', error => { fixture.close(); throw error; });
+  process.once('SIGINT', () => server.close());
+  process.once('SIGTERM', () => server.close());
+}
 server.listen(port, '127.0.0.1', () => {
-  console.log((labMode ? 'Haven isolated memory lab' : 'Haven local mock') + ': http://127.0.0.1:' + server.address().port + '/chat/');
+  console.log((providerMode ? 'Haven provider lab' : memoryMode ? 'Haven memory lab' : 'Haven local mock') + ': http://127.0.0.1:' + server.address().port + '/chat/');
 });
