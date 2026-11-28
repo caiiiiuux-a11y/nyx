@@ -77,7 +77,8 @@ function messagesFromTurn(turn) {
 
 // The local preview has one private room. Each turn owns two stable message IDs.
 // A committed turn without an answer survives an interrupted process.
-export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels, provider = 'mock' } = {}) {
+export function openStore(filename, { complete = generateMockReply, embedder, memoryLab, models = mockModels,
+  provider = 'mock', supportsWindowKey = false } = {}) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA busy_timeout=5000;
@@ -91,7 +92,12 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       request_id TEXT PRIMARY KEY, message_id INTEGER NOT NULL, model TEXT, answer TEXT NOT NULL
     );
   `);
-  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError });
+  const windows = createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey });
+  transaction(() => {
+    const columns = new Set(db.prepare('PRAGMA table_info(regenerations)').all().map(row => row.name));
+    if (!columns.has('cache_mode')) db.exec('ALTER TABLE regenerations ADD COLUMN cache_mode TEXT');
+    if (!columns.has('selected_model')) db.exec('ALTER TABLE regenerations ADD COLUMN selected_model TEXT');
+  });
   const turnById = id => db.prepare('SELECT * FROM turns WHERE id=?').get(id);
   let queue = Promise.resolve();
   let jobs = 0;
@@ -205,8 +211,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     let memoryTool;
     let memorySources;
     try {
+      const started = performance.now();
       result = await complete(request, options);
-      usage = result?.usage ?? estimatedUsage(request.messages, request.tools);
+      usage = result?.usage ?? estimatedUsage(request.messages, request.tools, result);
       memoryTool = result?.memoryTool;
       if (executeLabTool && result?.toolCall) {
         const call = result.toolCall;
@@ -226,8 +233,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
           { role: 'assistant', toolCall: call },
           { role: 'tool', name: call.name, content: JSON.stringify(receipt) }
         ], prefs.contextBudget);
+        const beforeSecondMs = performance.now() - started;
         result = await complete({ ...request, messages, tools: [] }, options);
-        usage = combineUsage(usage, result?.usage ?? estimatedUsage(messages, []));
+        usage = combineUsage(usage, result?.usage ?? estimatedUsage(messages, [], result), beforeSecondMs);
       }
       if (result?.toolCall || typeof result?.text !== 'string') throw new Error('Invalid completion');
     } catch (error) {
@@ -290,7 +298,9 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     }
     const messages = db.prepare(query).all(...params).flatMap(messagesFromTurn).filter(m => m.id > since);
     return { messages: limit == null ? messages : messages.slice(0, limit), thread, model: window.model, models,
-      contextBudget: window.contextBudget, cacheMode: window.cacheMode, usage: windows.latestUsage(thread) };
+      contextBudget: window.contextBudget, cacheMode: window.cacheMode,
+      cacheCapabilities: { windowKey: supportsWindowKey }, defaultWindowKey: windows.defaultWindowKey(),
+      usage: windows.latestUsage(thread) };
   }
 
   async function send(input) {
@@ -317,13 +327,13 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
         throw error;
       }
       if (existing) {
-        db.prepare('UPDATE turns SET budget_blocked=0,context_budget=?,cache_mode=? WHERE id=?')
-          .run(window.contextBudget, window.cacheMode, existing.id);
+        db.prepare('UPDATE turns SET budget_blocked=0,context_budget=? WHERE id=?')
+          .run(window.contextBudget, existing.id);
         return existing.id;
       }
       windows.recordTurn(window, draft, now);
       const result = db.prepare('INSERT INTO turns(thread,request_id,draft,model,created,context_budget,cache_mode) VALUES(?,?,?,?,?,?,?)')
-        .run(window.id, key, encoded, model, now, window.contextBudget, window.cacheMode);
+        .run(window.id, key, encoded, model, now, window.contextBudget, windows.requestCacheMode(window.cacheMode));
       return Number(result.lastInsertRowid);
     });
     // Commit the human message before invoking the adapter, including on the first attempt.
@@ -340,21 +350,27 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
     if (!Number.isSafeInteger(id) || id < 2 || id % 2) throw new RequestError(400, '请选择 Adrian 的回复');
     const model = input.model == null ? null : checkedModel(input.model, models);
     const selected = model ?? window.model;
+    const cacheMode = windows.requestCacheMode(window.cacheMode);
     return inRoomOrder(async () => {
       const turn = turnById(id / 2);
       if (!turn || turn.thread !== window.id) throw new RequestError(404, '找不到这条回复');
       const old = db.prepare('SELECT * FROM regenerations WHERE request_id=?').get(key);
       if (old) {
         if (old.message_id !== id || old.model !== model) throw new RequestError(409, '重试编号已用于不同的回复');
-        return { message: withHoldSource(JSON.parse(old.answer), humanMessage(turn)) };
+        if (old.answer) return { message: withHoldSource(JSON.parse(old.answer), humanMessage(turn)) };
       }
       await finishPending(window.id, turn.id);
       const prior = turnById(turn.id);
       if (prior.budget_blocked) throw budgetError();
+      // A failed upstream call can be retried after restart or after settings change.
+      if (!old) {
+        db.prepare(`INSERT INTO regenerations(request_id,message_id,model,selected_model,cache_mode,answer)
+          VALUES(?,?,?,?,?,'')`).run(key, id, model, selected, cacheMode);
+      }
       let answer;
       try {
-        answer = await makeAnswer(prior, selected, JSON.parse(prior.answer),
-          { contextBudget: window.contextBudget, cacheMode: window.cacheMode });
+        answer = await makeAnswer(prior, old?.selected_model ?? selected, JSON.parse(prior.answer),
+          { contextBudget: window.contextBudget, cacheMode: old?.cache_mode ?? cacheMode });
       } catch (error) {
         if (error instanceof RangeError) throw budgetError();
         throw error;
@@ -362,7 +378,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       const encoded = JSON.stringify(answer);
       transaction(() => {
         db.prepare('UPDATE turns SET answer=? WHERE id=?').run(encoded, turn.id);
-        db.prepare('INSERT INTO regenerations(request_id,message_id,model,answer) VALUES(?,?,?,?)').run(key, id, model, encoded);
+        db.prepare('UPDATE regenerations SET answer=? WHERE request_id=?').run(encoded, key);
         windows.recordAnswer(window.id, turn.id);
       });
       return { message: withHoldSource(answer, humanMessage(turn)) };
@@ -386,6 +402,7 @@ export function openStore(filename, { complete = generateMockReply, embedder, me
       return pocket.create(input);
     } },
     listWindows: windows.list, createWindow: windows.create, configureContext: windows.configure,
+    setDefaultWindowKey: windows.setDefaultWindowKey, defaultWindowKey: windows.defaultWindowKey,
     history, send, regenerate, selectModel, searchArchive: input => inRoomOrder(() => searchArchive(input)),
     readArchiveSource, bindEvidence, evidence, close: () => db.close()
   };

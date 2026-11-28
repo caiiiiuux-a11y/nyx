@@ -10,7 +10,7 @@ function draftTitle(draft) {
   return [...text].slice(0, 30).join('') || (draft.media ? '附件对话' : emptyTitle);
 }
 
-export function createWindowStore(db, { models, messagesFromTurn, transaction, RequestError }) {
+export function createWindowStore(db, { models, messagesFromTurn, transaction, RequestError, provider, supportsWindowKey }) {
   transaction(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS chat_windows (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
@@ -66,17 +66,35 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
   }
   function configure({ thread, contextBudget, cacheMode }) {
     const window = get(thread);
-    if (!budgets.includes(contextBudget) || !['auto', 'window'].includes(cacheMode)) {
+    if (!budgets.includes(contextBudget) || !['auto', 'window', 'provider'].includes(cacheMode)) {
       throw new RequestError(400, '请选择可用的上下文预算和缓存策略');
+    }
+    if (!supportsWindowKey && cacheMode !== 'auto' && cacheMode !== window.cacheMode) {
+      throw new RequestError(400, '这条线路没有会话缓存键设置');
     }
     transaction(() => {
       db.prepare('UPDATE chat_windows SET context_budget=?,cache_mode=? WHERE id=?').run(contextBudget, cacheMode, window.id);
       // A provider may discover an oversized tool exchange after the draft is stored.
       // A higher budget unlocks that same turn even after the browser was closed.
-      db.prepare(`UPDATE turns SET budget_blocked=0,context_budget=?,cache_mode=?
-        WHERE thread=? AND budget_blocked=1 AND context_budget<?`).run(contextBudget, cacheMode, window.id, contextBudget);
+      db.prepare(`UPDATE turns SET budget_blocked=0,context_budget=?
+        WHERE thread=? AND budget_blocked=1 AND context_budget<?`).run(contextBudget, window.id, contextBudget);
     });
     return { thread: window.id, contextBudget, cacheMode };
+  }
+  const cacheSetting = provider + '.prompt_cache_key';
+  function defaultWindowKey() {
+    return supportsWindowKey && db.prepare('SELECT value FROM settings WHERE name=?').get(cacheSetting)?.value === '1';
+  }
+  function setDefaultWindowKey({ enabled }) {
+    if (!supportsWindowKey) throw new RequestError(404, '这条线路没有会话缓存键设置');
+    if (typeof enabled !== 'boolean') throw new RequestError(400, '请选择是否发送会话缓存键');
+    db.prepare('INSERT INTO settings(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value')
+      .run(cacheSetting, enabled ? '1' : '0');
+    return { defaultWindowKey: enabled };
+  }
+  // Persist the wire decision. Old turns with "auto" already meant omission on the wire.
+  function requestCacheMode(mode) {
+    return supportsWindowKey && (mode === 'window' || (mode === 'auto' && defaultWindowKey())) ? 'window' : 'auto';
   }
   function recordTurn(window, draft, now) {
     const first = !db.prepare('SELECT 1 FROM turns WHERE thread=? LIMIT 1').get(window.id);
@@ -92,7 +110,7 @@ export function createWindowStore(db, { models, messagesFromTurn, transaction, R
     return latest ? JSON.parse(latest.answer).meta?.usage ?? null : null;
   }
   return {
-    get, create, recent, configure, recordTurn, recordAnswer, latestUsage,
+    get, create, recent, configure, recordTurn, recordAnswer, latestUsage, defaultWindowKey, setDefaultWindowKey, requestCacheMode,
     list: () => ({ windows: db.prepare('SELECT ' + fields + ' FROM chat_windows ORDER BY updated DESC,rowid DESC').all() })
   };
 }

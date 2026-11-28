@@ -36,6 +36,7 @@ export function withFixtureMemory(complete, lab) {
       }
     }
     const options = { model: request.model, thread: request.thread, cacheMode: request.cacheMode, contextBudget: request.contextBudget };
+    const started = performance.now();
     const result = await complete({ ...options, messages, tools: [searchTool] });
     if (!result.toolCall) return archiveHits ? { ...result, archiveHits } : result;
     const call = result.toolCall;
@@ -58,9 +59,10 @@ export function withFixtureMemory(complete, lab) {
     }
     messages.push({ role: 'assistant', content: result.text || null, toolCall: call },
       { role: 'tool', name: call.name, toolCallId: call.id, content: JSON.stringify(evidence) });
+    const beforeSecondMs = performance.now() - started;
     const answer = await complete({ ...options, messages, tools: [] });
     if (answer.toolCall) throw new Error('The terminal response must contain an answer.');
-    const usage = result.usage && answer.usage ? combineUsage(result.usage, answer.usage) : undefined;
+    const usage = result.usage && answer.usage ? combineUsage(result.usage, answer.usage, beforeSecondMs) : undefined;
     return { text: answer.text, memoryTool, ...(usage && { usage }), ...(archiveHits && { archiveHits }) };
   };
 }

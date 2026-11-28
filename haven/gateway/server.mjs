@@ -39,7 +39,7 @@ if (providerMode) {
   const { createChatCompletions } = await import('./chat-completions.mjs');
   const { withFixtureMemory } = await import('./provider-turn.mjs');
   fixture = await startProviderFixture();
-  Object.assign(storeOptions, { models: fixture.models, provider: 'home-fixture',
+  Object.assign(storeOptions, { models: fixture.models, provider: 'home-fixture', supportsWindowKey: true,
     complete: withFixtureMemory(createChatCompletions(fixture), lab) });
 }
 const store = openStore(database, storeOptions);
@@ -91,7 +91,8 @@ function historyOptions(params) {
 }
 
 async function api(req, res, url) {
-  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context'].includes(url.pathname)) {
+  if (labMode && !['/app/history', '/app/send', '/app/regenerate', '/app/model', '/app/windows', '/app/context',
+    '/app/provider-cache'].includes(url.pathname)) {
     throw new RequestError(404, '试验线路只开放聊天');
   }
   const origin = req.headers.origin;
@@ -102,6 +103,7 @@ async function api(req, res, url) {
     return json(res, 200, await store.history(historyOptions(url.searchParams)));
   }
   if (url.pathname === '/app/windows' && req.method === 'GET') return json(res, 200, store.listWindows());
+  if (url.pathname === '/app/provider-cache' && req.method === 'GET') return json(res, 200, { defaultWindowKey: store.defaultWindowKey() });
   const pocket = /^\/app\/pocket(?:\/([^/]+))?$/.exec(url.pathname);
   if (pocket) {
     const id = pocket[1];
@@ -113,6 +115,7 @@ async function api(req, res, url) {
   const handlers = new Map([
     ['/app/send', store.send], ['/app/model', store.selectModel], ['/app/regenerate', store.regenerate],
     ['/app/windows', store.createWindow], ['/app/context', store.configureContext],
+    ['/app/provider-cache', store.setDefaultWindowKey],
     ['/app/archive/search', store.searchArchive], ['/app/archive/read', store.readArchiveSource],
     ['/app/archive/bind', store.bindEvidence], ['/app/archive/evidence', store.evidence]
   ]);

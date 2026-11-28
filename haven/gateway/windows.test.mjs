@@ -21,7 +21,7 @@ test('migrates the original window and reopens independent transcripts with only
     JSON.stringify({ id: 8, from: 'ai', text: '原来的回复', ts, meta: { thread: 'window' } }));
   original.close();
   const requests = [];
-  const options = { embedder: false, complete: request => {
+  const options = { provider: 'home-fixture', supportsWindowKey: true, embedder: false, complete: request => {
     requests.push(request);
     return { text: '新回复' };
   } };
@@ -100,4 +100,70 @@ test('a confirmed shared memory carries its excerpt across windows without openi
   assert.deepEqual(recalled.messages[1].meta.sourceRefs, original.messages[1].meta.sourceRefs);
   assert.deepEqual(store.evidence({ thread: window.id, memoryId: 'test-bucket' }).sources, []);
   assert.throws(() => store.readArchiveSource({ thread: window.id, messageId: original.messages[0].id }), { status: 404 });
+});
+
+test('the provider default and each window override resolve once for a send or reroll, including after a restart', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'haven-cache-'));
+  const file = join(directory, 'synthetic.sqlite');
+  const original = new DatabaseSync(file);
+  original.exec(`CREATE TABLE turns (id INTEGER PRIMARY KEY, request_id TEXT UNIQUE NOT NULL,
+    draft TEXT NOT NULL, model TEXT NOT NULL, created TEXT NOT NULL, answer TEXT);
+    CREATE TABLE regenerations (request_id TEXT PRIMARY KEY, message_id INTEGER NOT NULL, model TEXT, answer TEXT NOT NULL);`);
+  original.prepare('INSERT INTO turns VALUES(1,?,?,?,?,NULL)').run('older-pending',
+    JSON.stringify({ text: '旧草稿', media: null, quote: null, model: null }), '月桂', new Date().toISOString());
+  original.close();
+  let failNext = false;
+  const calls = [];
+  const options = { provider: 'home-fixture', supportsWindowKey: true, embedder: false, complete(request) {
+    calls.push(request.cacheMode);
+    if (failNext) { failNext = false; throw new Error('synthetic outage'); }
+    return { text: '合成回复' };
+  } };
+  let store = openStore(file, options);
+  t.after(async () => { store.close(); await rm(directory, { force: true, recursive: true }); });
+  const first = store.createWindow({}).window.id;
+  const second = store.createWindow({}).window.id;
+  const send = (thread, requestId) => store.send({ thread, requestId, text: '好' });
+  const configure = (thread, cacheMode) => store.configureContext({ thread, cacheMode, contextBudget: 8192 });
+  const fresh = await store.history({ thread: first });
+  assert.deepEqual(fresh.cacheCapabilities, { windowKey: true });
+  assert.equal(fresh.defaultWindowKey, false);
+  assert.throws(() => store.setDefaultWindowKey({ enabled: 'false' }), { status: 400 });
+  await send(first, 'default-off');
+  store.setDefaultWindowKey({ enabled: true });
+  await store.history(); // The migrated pending turn predates the new default.
+  await send(first, 'inherit-on');
+  configure(second, 'provider');
+  await send(second, 'override-off');
+  configure(second, 'window');
+  store.setDefaultWindowKey({ enabled: false });
+  const answer = await send(second, 'override-on');
+  assert.deepEqual(calls, ['auto', 'auto', 'window', 'auto', 'window']);
+  configure(second, 'auto');
+  store.setDefaultWindowKey({ enabled: true });
+  failNext = true;
+  await assert.rejects(send(second, 'retry-send'), { status: 503 });
+  store.setDefaultWindowKey({ enabled: false });
+  store.close();
+  store = openStore(file, options);
+  await send(second, 'retry-send');
+  assert.deepEqual(calls.slice(-2), ['window', 'window']);
+  const reroll = { thread: second, id: answer.messages[1].id, requestId: 'retry-reroll' };
+  failNext = true;
+  await assert.rejects(store.regenerate(reroll), { status: 503 });
+  store.setDefaultWindowKey({ enabled: true });
+  store.close();
+  store = openStore(file, options);
+  const recovered = await store.regenerate(reroll);
+  const count = calls.length;
+  assert.deepEqual(await store.regenerate(reroll), recovered);
+  assert.equal(calls.length, count);
+  assert.deepEqual(calls.slice(-2), ['auto', 'auto']);
+  assert.equal((await store.history({ thread: second })).defaultWindowKey, true);
+  assert.equal((await store.history({ thread: second })).cacheMode, 'auto');
+  const mock = openStore(':memory:');
+  try {
+    assert.deepEqual((await mock.history()).cacheCapabilities, { windowKey: false });
+    assert.throws(() => mock.setDefaultWindowKey({ enabled: true }), { status: 404 });
+  } finally { mock.close(); }
 });

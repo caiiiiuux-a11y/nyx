@@ -57,7 +57,7 @@
   <dialog id="window-drawer" aria-labelledby="windows-title">
     <header><h2 id="windows-title">对话窗口</h2><button type="button" id="close-windows" aria-label="关闭窗口列表">×</button></header>
     <div id="window-list" aria-live="polite"></div>
-    <footer><a href="/">回到首页</a><a id="back-to-pocket" href="/living/pocket/" hidden>回到回头聊</a></footer>
+    <a id="back-to-pocket" href="/living/pocket/" hidden>回到回头聊</a>
   </dialog>
   <dialog id="settings" class="action-panel" aria-labelledby="settings-title">
     <h2 id="settings-title">聊天设置</h2>
@@ -65,10 +65,14 @@
       <button type="button" id="new-window">新建窗口</button>
     </div>
     <details id="context-settings">
-      <summary>上下文与用量</summary>
+      <summary>上下文与缓存</summary>
       <label class="setting">输入预算<select id="context-budget" aria-label="输入预算"></select></label>
-      <label class="setting">提示缓存<select id="cache-mode" aria-label="提示缓存"></select></label>
-      <p id="context-usage" role="status"></p>
+      <div id="cache-controls" hidden>
+        <label class="setting">本窗口<select id="cache-mode" aria-label="本窗口缓存策略"></select></label>
+        <label class="setting">线路默认发送窗口键<input type="checkbox" id="default-window-key"></label>
+        <p class="setting-hint">窗口键帮助接口复用相同的提示前缀。实际命中量可在每条回复下查看。</p>
+      </div>
+      <p id="cache-unavailable" class="setting-hint" hidden>当前模拟线路没有上游缓存设置。</p>
     </details>
     <label class="setting">显示双方头像<input id="show-avatars" type="checkbox" checked></label>
     <label class="wallpaper">聊天底图<input id="wallpaper" type="file" accept="image/jpeg,image/png,image/webp"></label>
@@ -95,6 +99,10 @@
       <button type="button" aria-label="关闭摘录" id="close-memory">×</button>
     </header>
     <div id="memory-content"></div>
+  </dialog>
+  <dialog id="usage-details" class="action-panel" aria-labelledby="usage-title">
+    <header><h2 id="usage-title">本条回复用量</h2><button type="button" id="close-usage" aria-label="关闭用量明细">×</button></header>
+    <div id="usage-content"></div>
   </dialog>
   <dialog id="photo" aria-label="查看图片">
     <img alt="" id="large-photo">

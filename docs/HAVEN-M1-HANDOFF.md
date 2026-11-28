@@ -10,7 +10,15 @@
 
 Gateway 按顺序带上本窗最近对话，并用当前发言在这个小屋聊天库的已有原话中找相关片段，最多补两条。检索复用本机 BGE‑M3，结合文字匹配、来源窗口和消息编号。问候或没有足够线索时直接聊天。重新生成回复时只考虑当时以前的消息。点击回复头像旁的「⋯」可在当前页看摘录及检索方式。4191 的三条隔离记忆演示继续使用专用工具流程。
 
-每窗可在「上下文与用量」设置估算输入预算，默认 8,192 tokens。超限优先移走较早的完整轮次。每次成功回复记录上游回报的输入、输出、缓存命中，工具往返按实际调用合计。未回报时单列本地估算。选择「按窗口复用」会发送稳定的 `prompt_cache_key`，实际命中取决于供应商。Morrow 已有按会话取历史与供应商提示缓存的做法。[Morrow 历史读取](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L712) · [Morrow 缓存处理](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L1916) · [OpenAI 提示缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
+「上下文与缓存」可调当前窗口的输入预算，默认 8,192 tokens。超限优先移走较早的完整轮次。此前对照过 Morrow 的会话历史读取与供应商提示缓存。[Morrow 历史读取](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L712) · [Morrow 缓存处理](https://github.com/ariaprism/Morrow/blob/c496d20df70f0ba5e32556d2eb69045f56b63bf5/chat_engine.py#L1916)
+
+### 回复用量与线路缓存
+
+参照 Kelivo 的消息脚注和按线路配置缓存键，使用小屋现有组件实现。在 Adrian 回复右下角点 token 数可展开这一条的输入、输出、缓存命中、缓存写入和计时。总数优先取接口回报，缓存明细包含在相应输入里。本地估算标「约」，未回报与回报零分别显示。上游提供输出计数时可计算平均速度；费用需要金额与币种同时明确。工具往返合计到同一条回复。[Kelivo 消息用量](https://github.com/Chevey339/kelivo/blob/ae246a0976aabace07b6ee7dab5960803b01ad39/lib/features/chat/widgets/token_display_widget.dart#L272-L309)
+
+4192 的 Chat Completions 线路支持窗口缓存键。线路默认关闭，本窗可选「跟随线路」「发送窗口键」或「不发送窗口键」。发送时保存决定，重试沿用。回复明细可核对实际请求是否带键；命中量以供应商回执为准。普通模拟线路隐藏该项。已用合成回执和手机视口核对，真实模型线路仍待确定。[Kelivo 缓存设置](https://github.com/Chevey339/kelivo/blob/ae246a0976aabace07b6ee7dab5960803b01ad39/lib/l10n/app_zh.arb#L1555-L1564) · [OpenAI 提示缓存](https://developers.openai.com/api/docs/guides/prompt-caching)
+
+自动唤醒留作功能讨论。Kelivo 有按时间触发的任务，也有生成期间保持屏幕常亮的独立功能。小屋本轮只涉及聊天用量与缓存。[Kelivo 使用手册](https://kelivo.psycheas.top/guide)
 
 4192 用虚构的银戒指刻字进行手机验收。在另一个空窗问「上次商量给指环内壁刻哪几个字母？」，实际 BGE‑M3 混合检索找到原句，合成 API 从收到的摘录回显 LUMEN。换成货车轴数的问题时没有引用。重新选择旧窗和刷新均恢复各自消息。此预览使用试验聊天库，真实旧档尚待单独导入。
 

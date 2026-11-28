@@ -1,6 +1,6 @@
 // Server-side adapter for the streaming Chat Completions wire format.
 // The Gateway owns the transcript, permissions, and execution of tool calls.
-import { estimatedUsage, fitHistory, providerUsage } from './usage.mjs';
+import { averageSpeed, estimatedOutput, estimatedUsage, fitHistory, providerUsage } from './usage.mjs';
 
 const maxResponseBytes = 2 * 1024 * 1024;
 
@@ -54,11 +54,12 @@ async function* eventData(body) {
   decoder.decode();
 }
 
-async function readCompletion(body, model, tools, usage) {
+async function readCompletion(body, model, tools, usage, elapsed) {
   let text = '';
   let call;
   let finish;
   for await (const data of eventData(body)) {
+    usage.firstResponseMs ??= elapsed();
     if (data === '[DONE]') {
       if (finish === 'stop' && !call && text.trim()) return { text };
       if (finish !== 'tool_calls' || !call?.id.trim() || !tools.some(tool => tool.name === call.name)) {
@@ -74,7 +75,7 @@ async function readCompletion(body, model, tools, usage) {
       throw invalidResponse();
     }
     // Providers may send a final usage-only chunk after the choice is finished.
-    if (chunk.usage && typeof chunk.usage === 'object') Object.assign(usage, providerUsage(chunk.usage));
+    if (chunk.usage && typeof chunk.usage === 'object') Object.assign(usage, providerUsage(chunk.usage, usage));
     if (!chunk.choices.length) continue;
     const [choice] = chunk.choices;
     if (chunk.choices.length !== 1 || (choice.index ?? 0) !== 0 || finish) throw invalidResponse();
@@ -82,6 +83,7 @@ async function readCompletion(body, model, tools, usage) {
     if (delta.content != null) {
       if (typeof delta.content !== 'string') throw invalidResponse();
       text += delta.content;
+      if (delta.content.length) usage.firstOutputMs ??= elapsed();
     }
     if (delta.tool_calls != null) {
       if (!Array.isArray(delta.tool_calls) || delta.tool_calls.length !== 1) throw invalidResponse();
@@ -122,8 +124,11 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch }) {
     const payload = { model, messages: outgoing, stream: true, stream_options: { include_usage: true } };
     if (definitions.length) payload.tools = definitions;
     if (cacheMode === 'window') payload.prompt_cache_key = 'haven-' + thread;
+    usage.windowKeySent = Object.hasOwn(payload, 'prompt_cache_key');
     const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
     if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
+    const started = performance.now();
+    const elapsed = () => performance.now() - started;
     const response = await fetchImpl(endpoint, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(60_000), headers, body: JSON.stringify(payload)
     }).catch(() => { throw new Error('连接模型服务失败'); });
@@ -132,7 +137,13 @@ export function createChatCompletions({ baseURL, apiKey, fetchImpl = fetch }) {
       throw new Error('模型服务未返回可用的事件流（HTTP ' + response.status + '）');
     }
     // Neither a supplier error body nor a JSON parser error should reach the transcript.
-    const result = await readCompletion(response.body, model, tools, usage).catch(() => { throw invalidResponse(); });
+    const result = await readCompletion(response.body, model, tools, usage, elapsed).catch(() => { throw invalidResponse(); });
+    usage.durationMs = elapsed();
+    usage.tokensPerSecond = averageSpeed(usage.outputTokens, usage.durationMs);
+    usage.estimatedOutputTokens = estimatedOutput(result);
+    if (usage.totalTokens == null && usage.inputTokens != null && usage.outputTokens != null) {
+      usage.totalTokens = usage.inputTokens + usage.outputTokens;
+    }
     return { ...result, usage };
   };
 }

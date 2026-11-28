@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChatCompletions } from './chat-completions.mjs';
 import { withFixtureMemory } from './provider-turn.mjs';
+import { combineUsage } from './usage.mjs';
 
 const model = 'iris-demo-a';
 const tool = { name: 'memory_search', parameters: { type: 'object', properties: { query: { type: 'string' } } } };
@@ -53,7 +54,12 @@ test('preserves context and matches the original tool call ID on the second mode
   assert.equal(answer.text, '找到灯塔。');
   assert.equal(answer.usage.inputTokens, null);
   assert.equal(answer.usage.cachedTokens, null);
+  assert.equal(answer.usage.totalTokens, null);
+  assert.equal(answer.usage.tokensPerSecond, null);
   assert.ok(answer.usage.estimatedInputTokens > 0);
+  assert.ok(answer.usage.estimatedOutputTokens > 0);
+  assert.ok(answer.usage.firstResponseMs <= answer.usage.firstOutputMs);
+  assert.ok(answer.usage.firstOutputMs <= answer.usage.durationMs);
   assert.deepEqual(sent[1].messages.slice(-2), [
     { role: 'assistant', content: null, tool_calls: [{ type: 'function', id: callId,
       function: { name: tool.name, arguments: '{"query":"灯塔"}' } }] },
@@ -65,14 +71,20 @@ test('window cache routing and streamed usage distinguish zero hits from an abse
   const sent = [];
   const complete = createChatCompletions({ baseURL: 'http://localhost/v1', fetchImpl: async (_, opts) => {
     sent.push(JSON.parse(opts.body));
-    return eventStream([choice({ content: '合成回复' }, 'stop'), { model, choices: [],
-      usage: { prompt_tokens: 80, completion_tokens: 9, prompt_tokens_details: { cached_tokens: 0 } } }, '[DONE]']);
+    return eventStream([choice({ role: 'assistant' }), choice({ content: '合成回复' }, 'stop'), { model, choices: [],
+      usage: { prompt_tokens: 80, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 11 } } },
+      { choices: [], usage: { completion_tokens: 9, total_tokens: 89, cost: 0.004, cost_currency: 'USD' } }, '[DONE]']);
   } });
   const result = await complete({ ...base, thread: 'sample-a', cacheMode: 'window' });
   assert.equal(sent[0].prompt_cache_key, 'haven-sample-a');
+  assert.equal(result.usage.windowKeySent, true);
   assert.deepEqual(sent[0].stream_options, { include_usage: true });
   assert.deepEqual([result.usage.inputTokens, result.usage.outputTokens, result.usage.cachedTokens], [80, 9, 0]);
-  await complete(base);
+  assert.equal(result.usage.cacheWriteTokens, 11);
+  assert.equal(result.usage.totalTokens, 89);
+  assert.deepEqual(result.usage.cost, { amount: 0.004, currency: 'USD' });
+  assert.equal(result.usage.tokensPerSecond, 9000 / result.usage.durationMs);
+  assert.equal((await complete(base)).usage.windowKeySent, false);
   assert.ok(!Object.hasOwn(sent[1], 'prompt_cache_key'));
 });
 
@@ -107,8 +119,27 @@ test('a two-call memory turn accounts for both receipts and keeps the same cache
   const answer = await turn({ model, messages: [{ role: 'system', content: '合成材料' }, ...base.messages],
     thread: 'sample-a', cacheMode: 'window', contextBudget: 1024 });
   assert.equal(answer.usage.calls, 2);
+  assert.equal(answer.usage.windowKeySent, true);
   assert.deepEqual([answer.usage.inputTokens, answer.usage.outputTokens, answer.usage.cachedTokens], [295, 19, 12]);
+  assert.equal(answer.usage.totalTokens, 314);
+  assert.equal(answer.usage.cacheWriteTokens, null);
+  assert.ok(answer.usage.firstResponseMs <= answer.usage.firstOutputMs);
+  assert.ok(answer.usage.firstOutputMs <= answer.usage.durationMs);
+  assert.ok(answer.usage.estimatedOutputTokens > 5);
+  assert.equal(answer.usage.tokensPerSecond, 19000 / answer.usage.durationMs);
   assert.deepEqual(sent.map(r => r.prompt_cache_key), ['haven-sample-a', 'haven-sample-a']);
+});
+
+test('an incomplete or differently denominated tool receipt does not report a complete bill', () => {
+  const first = { calls: 1, inputTokens: 12, outputTokens: 3, totalTokens: 15, cachedTokens: 4,
+    cost: { amount: 0.021, currency: 'USD' }, firstResponseMs: 10, firstOutputMs: 20, durationMs: 100 };
+  const other = { calls: 1, outputTokens: 7, cost: { amount: 2, currency: 'JPY' },
+    firstResponseMs: 15, firstOutputMs: 25, durationMs: 150 };
+  const turn = combineUsage(first, other, 300);
+  assert.deepEqual([turn.totalTokens, turn.inputTokens, turn.cachedTokens, turn.cost], [null, null, null, null]);
+  assert.deepEqual([turn.firstResponseMs, turn.firstOutputMs, turn.durationMs], [10, 325, 450]);
+  assert.equal(turn.tokensPerSecond, 10000 / 450);
+  assert.equal(combineUsage({ ...first, windowKeySent: true }, { ...other, windowKeySent: false }, 300).windowKeySent, undefined);
 });
 
 test('reports the HTTP status without exposing an upstream error body', async () => {

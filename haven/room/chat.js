@@ -2,6 +2,7 @@
 // context-menu/long-press handling, auto-growing input and IME-safe submit.
 // Noncommercial use under CC BY-NC 4.0. See /credits.html.
 import { chatService } from './service.js';
+import { usageReceipt } from './usage-receipt.js';
 import { avatarButton } from './avatars.js';
 import { getNote, saveMessage } from './pocket-store.js';
 
@@ -69,7 +70,7 @@ function setBusy(value, lockDraft = true) {
   busy = value;
   const locked = busy || !room;
   for (const control of [$('send'), $('attach'), picker, quoteChip, attachmentChip,
-    $('new-window'), $('context-budget'), $('cache-mode')]) {
+    $('new-window'), $('context-budget'), $('cache-mode'), $('default-window-key')]) {
     control.disabled = locked;
   }
   $('open-windows').disabled = busy;
@@ -191,7 +192,9 @@ function positionPanel() {
   const bottom = top + (viewport?.height || innerHeight) - 16;
   const box = dialog.getBoundingClientRect();
   const below = rect.bottom + 5;
-  const y = below + box.height <= bottom ? below : rect.top - box.height - 5;
+  const above = rect.top - box.height - 5;
+  const preferAbove = dialog.id === 'usage-details' && above >= top;
+  const y = preferAbove || below + box.height > bottom ? above : below;
   const x = rect.left + rect.width / 2 > (left + right) / 2 ? rect.right - box.width : rect.left;
   dialog.style.left = Math.max(left, Math.min(x, right - box.width)) + 'px';
   dialog.style.top = Math.max(top, Math.min(y, bottom - box.height)) + 'px';
@@ -214,16 +217,36 @@ log.addEventListener('scroll', dismissPanel, { passive: true });
 window.addEventListener('resize', positionPanel);
 window.visualViewport?.addEventListener('resize', positionPanel);
 window.visualViewport?.addEventListener('scroll', positionPanel);
-for (const dialog of [$('choices'), $('settings'), $('memory-details')]) {
+for (const dialog of [$('choices'), $('settings'), $('memory-details'), $('usage-details')]) {
   dialog.addEventListener('close', () => {
     if (!dialog.open && panel?.dialog === dialog) dismissPanel();
   });
 }
-$('close-memory').onclick = () => {
+$('close-usage').onclick = $('close-memory').onclick = () => {
   const anchor = panel?.anchor;
   dismissPanel();
   anchor?.focus({ preventScroll: true });
 };
+function usageButton(m) {
+  const receipt = usageReceipt(m.meta.usage, !chatService.persistent);
+  const button = control(receipt.label, () => {
+    const details = $('usage-content');
+    details.replaceChildren();
+    if (receipt.rows.length) {
+      const list = element('dl', 'usage-list');
+      for (const [name, value] of receipt.rows) list.append(element('dt', '', name), element('dd', '', value));
+      details.append(list);
+    }
+    if (receipt.note) details.append(element('p', 'usage-note', receipt.note));
+    openPanel($('usage-details'), button);
+  });
+  button.className = 'usage-button';
+  button.setAttribute('aria-label', '本条回复用量，' + receipt.label);
+  button.setAttribute('aria-controls', 'usage-details');
+  button.setAttribute('aria-haspopup', 'dialog');
+  button.setAttribute('aria-expanded', 'false');
+  return button;
+}
 function showMemoryDetails(anchor, tool, refs, archiveMode) {
   $('memory-title').textContent = anchor.getAttribute('aria-label');
   const content = $('memory-content');
@@ -507,6 +530,7 @@ function build(m) {
   more.setAttribute('aria-controls', 'choices');
   more.setAttribute('aria-expanded', 'false');
   actions.append(more);
+  if (!me) actions.append(usageButton(m));
   content.append(actions);
   addGestureMenu(body, m);
   row.append(content);
@@ -724,42 +748,18 @@ $('new-window').onclick = () => loadRoom({ create: true });
 
 const budget = $('context-budget');
 const cache = $('cache-mode');
-const tokenCount = count => Number.isFinite(count) ? count.toLocaleString('zh-CN') : '未回报';
+const defaultKey = $('default-window-key');
 for (const limit of [1024, 4096, 8192, 16384, 32768]) budget.add(new Option(limit.toLocaleString('zh-CN'), limit));
-cache.add(new Option('自动', 'auto'));
-cache.add(new Option('按窗口复用', 'window'));
+cache.add(new Option('跟随线路', 'auto'));
+cache.add(new Option('发送窗口键', 'window'));
+cache.add(new Option('不发送窗口键', 'provider'));
 function renderContext(state) {
+  if (!state) return;
   budget.value = state.contextBudget;
   cache.value = state.cacheMode;
-  if (!chatService.persistent) {
-    $('context-usage').textContent = '静态预览仅保存偏好。模拟回复不调用模型，也不计费。';
-    return;
-  }
-  const usage = state.usage;
-  if (!usage) {
-    $('context-usage').textContent = '这个窗口还没有用量记录。';
-    return;
-  }
-  const lines = [];
-  if (Number.isFinite(usage.estimatedInputTokens)) lines.push('估算输入 ' + tokenCount(usage.estimatedInputTokens) + ' tokens');
-  if (Number.isFinite(usage.inputTokens) || Number.isFinite(usage.outputTokens)) {
-    lines.push('接口回报 · 输入 ' + tokenCount(usage.inputTokens) + ' / 输出 ' + tokenCount(usage.outputTokens));
-  } else lines.push('接口尚未回报实际用量');
-  lines.push('缓存命中 ' + tokenCount(usage.cachedTokens));
-  const calls = usage.calls > 1 ? '（含 ' + usage.calls + ' 次模型调用）' : '';
-  $('context-usage').textContent = '最近一次回复' + calls + '\n' + lines.join('\n');
-}
-async function refreshUsage() {
-  const activeThread = room?.thread;
-  if (!activeThread || busy || !chatService.persistent) return;
-  try {
-    const latest = await chatService.room();
-    if (room?.thread !== activeThread || busy) return;
-    room.usage = latest.usage;
-    renderContext(room);
-  } catch {
-    if (room?.thread === activeThread) $('context-usage').textContent = '暂时读不到最新用量。';
-  }
+  defaultKey.checked = state.defaultWindowKey === true;
+  $('cache-controls').hidden = !state.cacheCapabilities?.windowKey;
+  $('cache-unavailable').hidden = !!state.cacheCapabilities?.windowKey;
 }
 function changeContext(settings) {
   return writeChat(async () => {
@@ -768,14 +768,26 @@ function changeContext(settings) {
   }, '窗口设置尚未保存。', () => changeContext(settings), true).finally(() => renderContext(room));
 }
 budget.onchange = cache.onchange = () => changeContext({ contextBudget: Number(budget.value), cacheMode: cache.value });
-$('context-settings').ontoggle = () => {
-  positionPanel();
-  if ($('context-settings').open) refreshUsage();
-};
-$('options').onclick = () => {
-  openPanel($('settings'), $('options'));
-  if ($('settings').open && $('context-settings').open) refreshUsage();
-};
+let lineRevision = 0;
+async function refreshLineDefault() {
+  if (!room?.cacheCapabilities?.windowKey || !$('settings').open || !$('context-settings').open) return;
+  const active = room;
+  const revision = ++lineRevision;
+  try {
+    const enabled = await chatService.defaultWindowKey();
+    if (room === active && revision === lineRevision) defaultKey.checked = room.defaultWindowKey = enabled;
+  } catch { /* Keep the last configuration confirmed by the gateway. */ }
+}
+function changeLineDefault(enabled) {
+  lineRevision++;
+  return writeChat(async () => {
+    await chatService.setDefaultWindowKey(enabled);
+    room.defaultWindowKey = enabled;
+  }, '线路默认设置尚未保存。', () => changeLineDefault(enabled), true).finally(() => renderContext(room));
+}
+defaultKey.onchange = () => changeLineDefault(defaultKey.checked);
+$('context-settings').ontoggle = () => { positionPanel(); refreshLineDefault(); };
+$('options').onclick = () => { openPanel($('settings'), $('options')); refreshLineDefault(); };
 
 // Preserve the existing local wallpaper preference from the earlier static mock.
 const wallpaperKey = 'haven.chat.wallpaper';

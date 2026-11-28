@@ -68,6 +68,8 @@ export function createGatewayChat(mediaAssets) {
       return { ...room, date: new Date(), media: mediaAssets };
     },
     setContext(options) { return request('context', { ...options, thread: active.id }); },
+    async defaultWindowKey() { return (await request('provider-cache')).defaultWindowKey; },
+    setDefaultWindowKey(enabled) { return request('provider-cache', { enabled }); },
     async selectModel(value) {
       const thread = active.id;
       const result = await request('model', { thread, model: value });
